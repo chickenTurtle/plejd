@@ -3,7 +3,7 @@
   "version": "0.12.0",
   "slug": "plejd",
   "description": "Adds support for the Swedish home automation devices from Plejd.",
-  "url": "https://github.com/icanos/hassio-plejd/",
+  "url": "https://github.com/chickenTurtle/plejd/",
   "arch": [
     "armhf",
     "armv7",
