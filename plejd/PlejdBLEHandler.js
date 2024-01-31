@@ -384,8 +384,8 @@ class PlejBLEHandler extends EventEmitter {
       // A problem that occurs is that the writeQueue in PlejdDeviceCommunication still
       // has has elements event though the device registry is updated.
       this.deviceRegistry.setOutputState(device.uniqueId, state, dim);
-      this.emit(MqttClient.EVENTS.stateChanged, device.uniqueId, {state: state, brightness: dim});
-      //this.emit(PlejBLEHandler.EVENTS.currentState);
+      //this.emit('stateChanged', device.uniqueId, {state: state, brightness: dim});
+      this.emit(PlejBLEHandler.EVENTS.currentState, device.uniqueId, {state: state, brightness: dim});
     }
   }
 

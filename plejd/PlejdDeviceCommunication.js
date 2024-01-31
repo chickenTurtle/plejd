@@ -55,8 +55,8 @@ class PlejdDeviceCommunication extends EventEmitter {
         (uniqueOutputId, command, data) => this._bleCommandReceived(uniqueOutputId, command, data),
       );
 
-      this.plejdBleHandler.on(PlejBLEHandler.EVENTS.currentState, () => {
-        this.writeQueue = [];
+      this.plejdBleHandler.on(PlejBLEHandler.EVENTS.currentState, (deviceId, state) => {
+        this.emit(PlejdDeviceCommunication.EVENTS.stateChanged, deviceId, state);
       });
       this.plejdBleHandler.on(PlejBLEHandler.EVENTS.connected, () => {
         logger.info('Bluetooth connected. Plejd BLE up and running!');
