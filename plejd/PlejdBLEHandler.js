@@ -6,6 +6,7 @@ const { EventEmitter } = require('events');
 const Configuration = require('./Configuration');
 const constants = require('./constants');
 const Logger = require('./Logger');
+const MqttClient = require('MqttClient');
 
 const { COMMANDS } = constants;
 const logger = Logger.getLogger('plejd-ble');
@@ -382,8 +383,9 @@ class PlejBLEHandler extends EventEmitter {
       // An event should fire here, which updates the current state of all devices.
       // A problem that occurs is that the writeQueue in PlejdDeviceCommunication still
       // has has elements event though the device registry is updated.
-      // this.deviceRegistry.setOutputState(device.uniqueId, state, dim);
-      // this.emit(PlejBLEHandler.EVENTS.currentState);
+      this.deviceRegistry.setOutputState(device.uniqueId, state, dim);
+      this.emit(MqttClient.EVENTS.stateChanged, device.uniqueId, {state: state, brightness: dim});
+      //this.emit(PlejBLEHandler.EVENTS.currentState);
     }
   }
 

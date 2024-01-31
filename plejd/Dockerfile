@@ -1,15 +1,10 @@
-ARG BUILD_FROM=hassioaddons/base:8.0.6
-FROM $BUILD_FROM
+ARG BUILD_FROM=hassioaddons/base:15.0.5
+FROM $BUILD_FROM as builder
 
 ENV LANG C.UTF-8
 
 # Set shell
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
-
-# Copy data for add-on
-COPY ./*.js /plejd/
-COPY ./config.json /plejd/
-COPY ./package.json /plejd/
 
 ARG BUILD_ARCH
 
@@ -37,11 +32,16 @@ RUN \
   && npm config set unsafe-perm true
 
 WORKDIR /plejd
+COPY ./package.json /plejd/
 RUN npm install \
   --no-audit \
   --no-update-notifier \
   --unsafe-perm
 
+FROM builder AS runtime
+# Copy data for add-on
+COPY ./*.js /plejd/
+COPY ./config.json /plejd/
 # Copy root filesystem
 COPY rootfs /
 
