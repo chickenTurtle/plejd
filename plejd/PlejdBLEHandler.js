@@ -6,7 +6,6 @@ const { EventEmitter } = require('events');
 const Configuration = require('./Configuration');
 const constants = require('./constants');
 const Logger = require('./Logger');
-const MqttClient = require('MqttClient');
 
 const { COMMANDS } = constants;
 const logger = Logger.getLogger('plejd-ble');
