@@ -81,6 +81,8 @@ class PlejdDeviceCommunication extends EventEmitter {
   }
 
   turnOn(uniqueOutputId, command) {
+    if (!this.bleConnected)
+      return
     const deviceName = this.deviceRegistry.getOutputDeviceName(uniqueOutputId);
     logger.info(
       `Plejd got turn on command for ${deviceName} (${uniqueOutputId}), brightness ${
@@ -91,6 +93,8 @@ class PlejdDeviceCommunication extends EventEmitter {
   }
 
   turnOff(uniqueOutputId, command) {
+    if (!this.bleConnected)
+      return
     const deviceName = this.deviceRegistry.getOutputDeviceName(uniqueOutputId);
     logger.info(
       `Plejd got turn off command for ${deviceName} (${uniqueOutputId})${
