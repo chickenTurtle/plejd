@@ -129,8 +129,20 @@ class PlejBLEHandler extends EventEmitter {
     // Stop discovery if it's running
     if (this.discoveryInProgress && this.adapter) {
       logger.verbose('Stopping discovery during cleanup...');
-      this._stopDiscoverySafely();
+      this._stopDiscoverySafely().catch(err => {
+        logger.error('Error stopping discovery during cleanup:', err);
+      });
+    } else {
+      this.discoveryInProgress = false;
     }
+  }
+
+  _validateAdapter() {
+    if (!this.adapter) {
+      logger.warn('Adapter is null, needs re-initialization');
+      return false;
+    }
+    return true;
   }
 
   async init() {
@@ -531,6 +543,7 @@ class PlejBLEHandler extends EventEmitter {
 
   async _stopDiscoverySafely() {
     if (!this.discoveryInProgress || !this.adapter) {
+      this.discoveryInProgress = false;
       return;
     }
 
@@ -541,6 +554,9 @@ class PlejBLEHandler extends EventEmitter {
     } catch (err) {
       if (err.message.includes('Operation already in progress')) {
         logger.warn('Discovery stop failed - operation already in progress, this is expected during cleanup');
+      } else if (err.message.includes('Resource Not Ready')) {
+        logger.warn('Discovery stop failed - Resource Not Ready, adapter may need re-initialization');
+        // Don't reset adapter here, let the calling code handle re-initialization
       } else {
         logger.error('Failed to stop discovery during cleanup:', err);
       }
@@ -595,6 +611,12 @@ class PlejBLEHandler extends EventEmitter {
       await delay(1000); // Wait a bit for the previous discovery to fully stop
     }
 
+    // Ensure adapter is valid before proceeding
+    if (!this.adapter) {
+      logger.warn('Adapter is null, re-initializing...');
+      await this._getInterface();
+    }
+
     logger.verbose('Setting up interfacesAdded subscription and discovery filter');
     this.objectManager.on('InterfacesAdded', (path, interfaces) =>
       this._onInterfacesAdded(path, interfaces),
@@ -621,6 +643,13 @@ class PlejBLEHandler extends EventEmitter {
         try {
           await this._stopDiscoverySafely();
           await delay(2000); // Wait longer for the operation to fully complete
+          
+          // Ensure adapter is still valid after stopping discovery
+          if (!this.adapter) {
+            logger.warn('Adapter became null after stopping discovery, re-initializing...');
+            await this._getInterface();
+          }
+          
           await this.adapter.StartDiscovery();
           this.discoveryInProgress = true;
           logger.verbose('Successfully restarted BLE discovery after stop/start');
@@ -659,6 +688,11 @@ class PlejBLEHandler extends EventEmitter {
       
       // Re-initialize the adapter after power cycle
       await this._getInterface();
+      
+      // Ensure adapter is valid before proceeding
+      if (!this.adapter) {
+        throw new Error('Failed to re-initialize adapter after power cycle');
+      }
       
       await delay(2000);
       await this.adapter.StartDiscovery();
@@ -758,6 +792,12 @@ class PlejBLEHandler extends EventEmitter {
             await this._powerCycleAdapter();
             // Re-initialize the adapter after power cycle
             await this._getInterface();
+            
+            // Validate adapter after re-initialization
+            if (!this._validateAdapter()) {
+              logger.error('Adapter validation failed after power cycle');
+              throw new Error('Adapter validation failed');
+            }
           } catch (powerCycleErr) {
             logger.error('Failed to power cycle adapter during reconnect:', powerCycleErr);
             // Continue anyway, might still work
