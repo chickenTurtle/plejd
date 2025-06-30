@@ -173,10 +173,29 @@ class PlejBLEHandler extends EventEmitter {
       lightLevelProperties: null,
     };
 
-    await this._getInterface();
-    await this._startGetPlejdDevice();
+    try {
+      await this._getInterface();
+      await this._startGetPlejdDevice();
 
-    logger.info('BLE init done, waiting for devices.');
+      logger.info('BLE init done, waiting for devices.');
+    } catch (err) {
+      logger.error('Failed to initialize BLE:', err);
+      
+      if (err.message.includes('Resource Not Ready')) {
+        logger.warn('BLE adapter not ready, attempting power cycle and re-initialization...');
+        try {
+          await this._powerCycleAdapter();
+          await this._getInterface();
+          await this._startGetPlejdDevice();
+          logger.info('BLE init successful after power cycle recovery');
+        } catch (recoveryErr) {
+          logger.error('Failed to recover from Resource Not Ready error:', recoveryErr);
+          throw recoveryErr;
+        }
+      } else {
+        throw err;
+      }
+    }
   }
 
   /**
@@ -423,8 +442,10 @@ class PlejBLEHandler extends EventEmitter {
           const adapterObject = await this.bus.getProxyObject(BLUEZ_SERVICE_NAME, path);
           // eslint-disable-next-line no-await-in-loop
           this.adapterProperties = await adapterObject.getInterface(DBUS_PROP_INTERFACE);
-          // eslint-disable-next-line no-await-in-loop
-          await this._powerOnAdapter();
+          
+          // Check if adapter is ready
+          await this._ensureAdapterReady();
+          
           this.adapter = adapterObject.getInterface(BLUEZ_ADAPTER_ID);
           // eslint-disable-next-line no-await-in-loop
           await this._cleanExistingConnections(managedObjects);
@@ -443,22 +464,69 @@ class PlejBLEHandler extends EventEmitter {
     throw new Error('Unable to find a bluetooth adapter that is compatible.');
   }
 
+  async _ensureAdapterReady() {
+    try {
+      // Check if adapter is powered on
+      const powered = await this.adapterProperties.Get(BLUEZ_ADAPTER_ID, 'Powered');
+      if (!powered.value) {
+        logger.warn('Adapter not powered on, powering it on...');
+        await this._powerOnAdapter();
+      }
+
+      // Check if adapter is discoverable (optional, but good to verify)
+      const discoverable = await this.adapterProperties.Get(BLUEZ_ADAPTER_ID, 'Discoverable');
+      if (!discoverable.value) {
+        logger.verbose('Adapter not discoverable, enabling...');
+        await this.adapterProperties.Set(BLUEZ_ADAPTER_ID, 'Discoverable', new dbus.Variant('b', 1));
+      }
+
+      logger.verbose('Adapter is ready');
+    } catch (err) {
+      logger.error('Failed to ensure adapter is ready:', err);
+      throw new Error('Resource Not Ready');
+    }
+  }
+
   async _powerCycleAdapter() {
     logger.verbose('Power cycling BLE adapter');
-    await this._powerOffAdapter();
-    await this._powerOnAdapter();
+    try {
+      await this._powerOffAdapter();
+      await this._powerOnAdapter();
+    } catch (err) {
+      logger.error('Failed to power cycle adapter:', err);
+      // Continue anyway, the adapter might still be usable
+    }
   }
 
   async _powerOnAdapter() {
     logger.verbose('Powering on BLE adapter and waiting 5 seconds');
-    await this.adapterProperties.Set(BLUEZ_ADAPTER_ID, 'Powered', new dbus.Variant('b', 1));
-    await delay(5000);
+    try {
+      await this.adapterProperties.Set(BLUEZ_ADAPTER_ID, 'Powered', new dbus.Variant('b', 1));
+      await delay(5000);
+      
+      // Verify the adapter is actually powered on
+      const powered = await this.adapterProperties.Get(BLUEZ_ADAPTER_ID, 'Powered');
+      if (!powered.value) {
+        logger.warn('Adapter power on failed, retrying...');
+        await delay(2000);
+        await this.adapterProperties.Set(BLUEZ_ADAPTER_ID, 'Powered', new dbus.Variant('b', 1));
+        await delay(3000);
+      }
+    } catch (err) {
+      logger.error('Failed to power on adapter:', err);
+      throw err;
+    }
   }
 
   async _powerOffAdapter() {
     logger.verbose('Powering off BLE adapter and waiting 30 seconds');
-    await this.adapterProperties.Set(BLUEZ_ADAPTER_ID, 'Powered', new dbus.Variant('b', 0));
-    await delay(30000);
+    try {
+      await this.adapterProperties.Set(BLUEZ_ADAPTER_ID, 'Powered', new dbus.Variant('b', 0));
+      await delay(30000);
+    } catch (err) {
+      logger.error('Failed to power off adapter:', err);
+      // Continue anyway, might already be off
+    }
   }
 
   async _stopDiscoverySafely() {
@@ -545,6 +613,7 @@ class PlejBLEHandler extends EventEmitter {
       logger.verbose('Started BLE discovery');
     } catch (err) {
       logger.error('Failed to start discovery.', err);
+      
       if (err.message.includes('Operation already in progress')) {
         logger.info(
           'Discovery failed - operation already in progress. Attempting to stop and restart...',
@@ -558,34 +627,48 @@ class PlejBLEHandler extends EventEmitter {
         } catch (retryErr) {
           logger.error('Failed to restart discovery after stop/start:', retryErr);
           if (retryErr.message.includes('Operation already in progress')) {
-            logger.info(
-              'If you continue to get "operation already in progress" error, you can try power cycling the bluetooth adapter. Get root console access, run "bluetoothctl" => "power off" => "power on" => "exit" => restart addon.',
-            );
-            // Try power cycling as last resort
-            try {
-              await delay(500);
-              await this._powerCycleAdapter();
-              await delay(2000);
-              await this.adapter.StartDiscovery();
-              this.discoveryInProgress = true;
-              logger.verbose('Successfully started discovery after power cycle');
-            } catch (powerCycleErr) {
-              logger.error('Failed to start discovery even after power cycle:', powerCycleErr);
-              throw new Error(
-                'Failed to start discovery. Make sure no other add-on is currently scanning.',
-              );
-            }
+            await this._handleDiscoveryFailure('operation_already_in_progress');
           } else {
             throw new Error(
               'Failed to start discovery. Make sure no other add-on is currently scanning.',
             );
           }
         }
+      } else if (err.message.includes('Resource Not Ready')) {
+        logger.warn('Discovery failed - Resource Not Ready. Adapter may need power cycling...');
+        await this._handleDiscoveryFailure('resource_not_ready');
       } else {
         throw new Error(
           'Failed to start discovery. Make sure no other add-on is currently scanning.',
         );
       }
+    }
+  }
+
+  async _handleDiscoveryFailure(failureType) {
+    logger.info(
+      `Handling discovery failure: ${failureType}. If you continue to get errors, you can try power cycling the bluetooth adapter. Get root console access, run "bluetoothctl" => "power off" => "power on" => "exit" => restart addon.`,
+    );
+    
+    try {
+      // Try power cycling as last resort
+      logger.verbose('Attempting power cycle to resolve discovery issues...');
+      await delay(500);
+      await this._powerCycleAdapter();
+      await delay(3000); // Wait longer for adapter to fully initialize
+      
+      // Re-initialize the adapter after power cycle
+      await this._getInterface();
+      
+      await delay(2000);
+      await this.adapter.StartDiscovery();
+      this.discoveryInProgress = true;
+      logger.verbose('Successfully started discovery after power cycle and re-initialization');
+    } catch (powerCycleErr) {
+      logger.error('Failed to start discovery even after power cycle:', powerCycleErr);
+      throw new Error(
+        'Failed to start discovery. Make sure no other add-on is currently scanning.',
+      );
     }
   }
 
@@ -671,7 +754,14 @@ class PlejBLEHandler extends EventEmitter {
           logger.warn(
             `Tried reconnecting ${this.consecutiveReconnectAttempts} times. Will power cycle the BLE adapter now...`,
           );
-          await this._powerCycleAdapter();
+          try {
+            await this._powerCycleAdapter();
+            // Re-initialize the adapter after power cycle
+            await this._getInterface();
+          } catch (powerCycleErr) {
+            logger.error('Failed to power cycle adapter during reconnect:', powerCycleErr);
+            // Continue anyway, might still work
+          }
         } else {
           logger.verbose(
             `Reconnect attempt ${this.consecutiveReconnectAttempts} in a row. Will power cycle every 10th time.`,
