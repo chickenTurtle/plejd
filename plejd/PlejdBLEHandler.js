@@ -65,6 +65,7 @@ class PlejBLEHandler extends EventEmitter {
   requestCurrentPlejdTimeRef = null;
   reconnectInProgress = false;
   emergencyReconnectTimeout = null;
+  discoveryInProgress = false;
 
   // Refer to BLE-states.md regarding the internal BLE/bluez state machine of Bluetooth states
   // These states refer to the state machine of this file
@@ -124,6 +125,12 @@ class PlejBLEHandler extends EventEmitter {
     if (this.objectManager) {
       this.objectManager.removeAllListeners('InterfacesAdded');
     }
+
+    // Stop discovery if it's running
+    if (this.discoveryInProgress && this.adapter) {
+      logger.verbose('Stopping discovery during cleanup...');
+      this._stopDiscoverySafely();
+    }
   }
 
   async init() {
@@ -154,6 +161,7 @@ class PlejBLEHandler extends EventEmitter {
     this.bleDevices = [];
     this.connectedDevice = null;
     this.connectedDeviceId = null;
+    this.discoveryInProgress = false; // Reset discovery state
 
     this.characteristics = {
       data: null,
@@ -273,9 +281,11 @@ class PlejBLEHandler extends EventEmitter {
       try {
         logger.verbose('Stopping discovery...');
         await this.adapter.StopDiscovery();
+        this.discoveryInProgress = false;
         logger.verbose('Stopped BLE discovery');
       } catch (err) {
         logger.error('Failed to stop discovery.', err);
+        this.discoveryInProgress = false; // Reset state even if stop fails
         if (err.message.includes('Operation already in progress')) {
           logger.info(
             'If you continue to get "operation already in progress" error, you can try power cycling the bluetooth adapter. Get root console access, run "bluetoothctl" => "power off" => "power on" => "exit" => restart addon.',
@@ -451,6 +461,26 @@ class PlejBLEHandler extends EventEmitter {
     await delay(30000);
   }
 
+  async _stopDiscoverySafely() {
+    if (!this.discoveryInProgress || !this.adapter) {
+      return;
+    }
+
+    try {
+      logger.verbose('Stopping discovery safely...');
+      await this.adapter.StopDiscovery();
+      logger.verbose('Discovery stopped successfully');
+    } catch (err) {
+      if (err.message.includes('Operation already in progress')) {
+        logger.warn('Discovery stop failed - operation already in progress, this is expected during cleanup');
+      } else {
+        logger.error('Failed to stop discovery during cleanup:', err);
+      }
+    } finally {
+      this.discoveryInProgress = false;
+    }
+  }
+
   async _cleanExistingConnections(managedObjects) {
     logger.verbose(
       `Iterating ${
@@ -490,6 +520,13 @@ class PlejBLEHandler extends EventEmitter {
   }
 
   async _startGetPlejdDevice() {
+    // Check if discovery is already running
+    if (this.discoveryInProgress) {
+      logger.warn('Discovery already in progress, stopping it first...');
+      await this._stopDiscoverySafely();
+      await delay(1000); // Wait a bit for the previous discovery to fully stop
+    }
+
     logger.verbose('Setting up interfacesAdded subscription and discovery filter');
     this.objectManager.on('InterfacesAdded', (path, interfaces) =>
       this._onInterfacesAdded(path, interfaces),
@@ -504,17 +541,51 @@ class PlejBLEHandler extends EventEmitter {
       logger.verbose('Starting BLE discovery... This can take up to 180 seconds.');
       this._scheduleInternalInit();
       await this.adapter.StartDiscovery();
+      this.discoveryInProgress = true;
       logger.verbose('Started BLE discovery');
     } catch (err) {
       logger.error('Failed to start discovery.', err);
       if (err.message.includes('Operation already in progress')) {
         logger.info(
-          'If you continue to get "operation already in progress" error, you can try power cycling the bluetooth adapter. Get root console access, run "bluetoothctl" => "power off" => "power on" => "exit" => restart addon.',
+          'Discovery failed - operation already in progress. Attempting to stop and restart...',
+        );
+        try {
+          await this._stopDiscoverySafely();
+          await delay(2000); // Wait longer for the operation to fully complete
+          await this.adapter.StartDiscovery();
+          this.discoveryInProgress = true;
+          logger.verbose('Successfully restarted BLE discovery after stop/start');
+        } catch (retryErr) {
+          logger.error('Failed to restart discovery after stop/start:', retryErr);
+          if (retryErr.message.includes('Operation already in progress')) {
+            logger.info(
+              'If you continue to get "operation already in progress" error, you can try power cycling the bluetooth adapter. Get root console access, run "bluetoothctl" => "power off" => "power on" => "exit" => restart addon.',
+            );
+            // Try power cycling as last resort
+            try {
+              await delay(500);
+              await this._powerCycleAdapter();
+              await delay(2000);
+              await this.adapter.StartDiscovery();
+              this.discoveryInProgress = true;
+              logger.verbose('Successfully started discovery after power cycle');
+            } catch (powerCycleErr) {
+              logger.error('Failed to start discovery even after power cycle:', powerCycleErr);
+              throw new Error(
+                'Failed to start discovery. Make sure no other add-on is currently scanning.',
+              );
+            }
+          } else {
+            throw new Error(
+              'Failed to start discovery. Make sure no other add-on is currently scanning.',
+            );
+          }
+        }
+      } else {
+        throw new Error(
+          'Failed to start discovery. Make sure no other add-on is currently scanning.',
         );
       }
-      throw new Error(
-        'Failed to start discovery. Make sure no other add-on is currently scanning.',
-      );
     }
   }
 
@@ -727,7 +798,7 @@ class PlejBLEHandler extends EventEmitter {
     logger.info('Requesting current Plejd time...');
 
     const payload = this._createHexPayload(
-      this.connectedDevice.id,
+      this.connectedDevice.deviceId,
       BLE_CMD_TIME_UPDATE,
       '',
       BLE_REQUEST_RESPONSE,
