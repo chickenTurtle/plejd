@@ -18,15 +18,15 @@
 const mqtt = require('mqtt');
 
 // Configuration - adjust these values for your setup
-const MQTT_BROKER = 'mqtt://localhost:1883'; // or your MQTT broker address
+const MQTT_BROKER = 'mqtt://'; // or your MQTT broker address
 const MQTT_TOPIC_PREFIX = 'homeassistant'; // adjust if different
 const NODE_ID = 'plejd'; // adjust if different
 
-function setDimLevel(deviceId, brightness, transition = null, password) {
+function setDimLevel(deviceId, brightness, password) {
   const client = mqtt.connect(MQTT_BROKER, {
     clientId: `example-dim-level_${Math.random().toString(16).substr(2, 8)}`,
     username: 'mqtt-api-user',
-    password: password,
+    password: 'plejd-mqtt',
     protocolVersion: 4,
     queueQoSZero: true,
   });

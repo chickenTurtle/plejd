@@ -80,9 +80,10 @@ mosquitto_pub -h localhost -t "homeassistant/light/plejd/light_bedroom_main/set"
 
 ### Files Modified
 
-1. **PlejdDeviceCommunication.js**: Added `setDimLevel()` method
+1. **PlejdDeviceCommunication.js**: Added `setDimLevel()` method and `_setDimLevelOnly()` helper
 2. **PlejdAddon.js**: Added MQTT command handling for `dimLevel`
-3. **constants.js**: Added `SET_DIM_LEVEL` command constant
+3. **PlejdBLEHandler.js**: Added `COMMANDS.SET_DIM_LEVEL` BLE command that sets brightness without turning on
+4. **constants.js**: Added `SET_DIM_LEVEL` command constant
 
 ### Key Features
 

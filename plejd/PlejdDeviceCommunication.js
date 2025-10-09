@@ -138,13 +138,13 @@ class PlejdDeviceCommunication extends EventEmitter {
       // If device is off, just set the brightness level without turning it on
       // This will be used when the device is turned on later
       logger.debug(`Device ${deviceName} is off, setting dim level to ${brightness} for when it's turned on`);
-      this._setBrightness(uniqueOutputId, brightness, true, deviceName);
+      this._setDimLevelOnly(uniqueOutputId, brightness, true, deviceName);
     }
   }
 
   _bleCommandReceived(uniqueOutputId, command, data) {
     try {
-      if (command === COMMANDS.DIM) {
+      if (command === COMMANDS.DIM || command === COMMANDS.SET_DIM_LEVEL) {
         this.deviceRegistry.setOutputState(uniqueOutputId, data.state, data.dim);
         this.emit(PlejdDeviceCommunication.EVENTS.stateChanged, uniqueOutputId, {
           state: !!data.state,
@@ -276,6 +276,22 @@ class PlejdDeviceCommunication extends EventEmitter {
       logger.debug(`Queueing ${unqiueOutputId} set brightness to ${brightness}`);
       // eslint-disable-next-line no-bitwise
       this._appendCommandToWriteQueue(unqiueOutputId, COMMANDS.DIM, brightness, shouldRetry);
+    }
+  }
+
+  _setDimLevelOnly(uniqueOutputId, brightness, shouldRetry, deviceName) {
+    if (brightness < 0) {
+      logger.debug(`Queueing turn off ${deviceName} (${uniqueOutputId})`);
+      this._appendCommandToWriteQueue(uniqueOutputId, COMMANDS.TURN_OFF, null, shouldRetry);
+    } else {
+      if (brightness > 255) {
+        // eslint-disable-next-line no-param-reassign
+        brightness = 255;
+      }
+
+      logger.debug(`Queueing ${deviceName} (${uniqueOutputId}) set dim level to ${brightness} (without turning on)`);
+      // eslint-disable-next-line no-bitwise
+      this._appendCommandToWriteQueue(uniqueOutputId, COMMANDS.SET_DIM_LEVEL, brightness, shouldRetry);
     }
   }
 

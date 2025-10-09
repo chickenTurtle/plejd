@@ -234,6 +234,15 @@ class PlejBLEHandler extends EventEmitter {
           `01${brightnessVal.toString(16).padStart(4, '0')}`,
         );
         break;
+      case COMMANDS.SET_DIM_LEVEL:
+        // eslint-disable-next-line no-bitwise
+        brightnessVal = (data << 8) | data;
+        payload = this._createHexPayload(
+          bleOutputAddress,
+          BLE_CMD_DIM2_CHANGE,
+          `00${brightnessVal.toString(16).padStart(4, '0')}`,
+        );
+        break;
       default:
         logger.error(`Unknown command ${command}`);
         throw new Error(`Unknown command ${command}`);
