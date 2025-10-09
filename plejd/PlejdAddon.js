@@ -105,6 +105,13 @@ class PlejdAddon extends EventEmitter {
               state,
             });
           } else {
+            // Check if this is a dim level command
+            if (command.dimLevel !== undefined) {
+              // Set dim level without changing on/off state
+              this.plejdDeviceCommunication.setDimLevel(uniqueId, command.dimLevel, command.transition);
+              return;
+            }
+            
             // eslint-disable-next-line prefer-destructuring
             state = command.state === 'ON';
             commandObj = command;

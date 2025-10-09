@@ -104,6 +104,44 @@ class PlejdDeviceCommunication extends EventEmitter {
     this._transitionTo(uniqueOutputId, 0, command.transition, deviceName);
   }
 
+  setDimLevel(uniqueOutputId, brightness, transition = null) {
+    if (!this.bleConnected)
+      return
+    const deviceName = this.deviceRegistry.getOutputDeviceName(uniqueOutputId);
+    const device = this.deviceRegistry.getOutputDevice(uniqueOutputId);
+    
+    if (!device) {
+      logger.warn(`Device ${uniqueOutputId} not found`);
+      return;
+    }
+    
+    if (!device.dimmable) {
+      logger.warn(`Device ${deviceName} (${uniqueOutputId}) is not dimmable`);
+      return;
+    }
+    
+    if (brightness < 0 || brightness > 255) {
+      logger.warn(`Invalid brightness value ${brightness}. Must be between 0-255`);
+      return;
+    }
+    
+    logger.info(
+      `Plejd got set dim level command for ${deviceName} (${uniqueOutputId}), brightness: ${brightness}${
+        transition ? `, transition: ${transition}` : ''
+      }`,
+    );
+    
+    // Only set brightness if the device is currently on
+    if (device.state) {
+      this._transitionTo(uniqueOutputId, brightness, transition, deviceName);
+    } else {
+      // If device is off, just set the brightness level without turning it on
+      // This will be used when the device is turned on later
+      logger.debug(`Device ${deviceName} is off, setting dim level to ${brightness} for when it's turned on`);
+      this._setBrightness(uniqueOutputId, brightness, true, deviceName);
+    }
+  }
+
   _bleCommandReceived(uniqueOutputId, command, data) {
     try {
       if (command === COMMANDS.DIM) {
