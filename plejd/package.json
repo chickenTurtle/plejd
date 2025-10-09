@@ -7,7 +7,7 @@
     "fs": "0.0.1-security",
     "jspack": "~0.0.4",
     "mqtt": "~4.2.6",
-    "winston": "~3.3.3"
+    "winston": "3.2.1"
   },
   "devDependencies": {
     "babel-eslint": "~10.1.0",
