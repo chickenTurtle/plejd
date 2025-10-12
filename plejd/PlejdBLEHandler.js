@@ -129,7 +129,7 @@ class PlejBLEHandler extends EventEmitter {
     // Stop discovery if it's running
     if (this.discoveryInProgress && this.adapter) {
       logger.verbose('Stopping discovery during cleanup...');
-      this._stopDiscoverySafely().catch(err => {
+      this._stopDiscoverySafely().catch((err) => {
         logger.error('Error stopping discovery during cleanup:', err);
       });
     } else {
@@ -192,7 +192,7 @@ class PlejBLEHandler extends EventEmitter {
       logger.info('BLE init done, waiting for devices.');
     } catch (err) {
       logger.error('Failed to initialize BLE:', err);
-      
+
       if (err.message.includes('Resource Not Ready')) {
         logger.warn('BLE adapter not ready, attempting power cycle and re-initialization...');
         try {
@@ -401,30 +401,30 @@ class PlejBLEHandler extends EventEmitter {
       return;
     }
 
-    let value = await properties.Value;
-    if (!value) {
+    const v = await properties.Value;
+    if (!v) {
       return;
     }
 
-    value = value.value;
+    const { value } = v;
     if (value.length !== 20 && value.length !== 10) {
       logger.debug(`Unknown length data received for lightlevel: ${value}`);
       return;
     }
 
-    let msgs = [value.slice(0, 10)];
+    const msgs = [value.slice(0, 10)];
     if (value.length === 20) {
       msgs.push(value.slice(10, 20));
     }
 
-    for (let m of msgs) {
+    msgs.forEach((m) => {
       const bleOutputAddress = m.readUInt8(0);
       const device = this.deviceRegistry.getOutputDeviceByBleOutputAddress(bleOutputAddress);
       if (!device) return;
       const outputUniqueId = device ? device.uniqueId : null;
       const deviceName = device ? device.name : 'Unknown';
       const dim = m.readUInt8(6);
-      const state = m.readUInt8(1) === 1 ? true : false;
+      const state = m.readUInt8(1) === 1;
 
       logger.verbose(
         `Decoded: Device ${outputUniqueId} (BLE address ${bleOutputAddress}), name: ${deviceName} state: ${state}, dim: ${dim}`,
@@ -433,9 +433,12 @@ class PlejBLEHandler extends EventEmitter {
       // A problem that occurs is that the writeQueue in PlejdDeviceCommunication still
       // has has elements event though the device registry is updated.
       this.deviceRegistry.setOutputState(device.uniqueId, state, dim);
-      //this.emit('stateChanged', device.uniqueId, {state: state, brightness: dim});
-      this.emit(PlejBLEHandler.EVENTS.currentState, device.uniqueId, {state: state, brightness: dim});
-    }
+      // this.emit('stateChanged', device.uniqueId, {state: state, brightness: dim});
+      this.emit(PlejBLEHandler.EVENTS.currentState, device.uniqueId, {
+        state,
+        brightness: dim,
+      });
+    });
   }
 
   async _plejdUpdate() {
@@ -463,10 +466,11 @@ class PlejBLEHandler extends EventEmitter {
           const adapterObject = await this.bus.getProxyObject(BLUEZ_SERVICE_NAME, path);
           // eslint-disable-next-line no-await-in-loop
           this.adapterProperties = await adapterObject.getInterface(DBUS_PROP_INTERFACE);
-          
+
           // Check if adapter is ready
+          // eslint-disable-next-line no-await-in-loop
           await this._ensureAdapterReady();
-          
+
           this.adapter = adapterObject.getInterface(BLUEZ_ADAPTER_ID);
           // eslint-disable-next-line no-await-in-loop
           await this._cleanExistingConnections(managedObjects);
@@ -498,7 +502,11 @@ class PlejBLEHandler extends EventEmitter {
       const discoverable = await this.adapterProperties.Get(BLUEZ_ADAPTER_ID, 'Discoverable');
       if (!discoverable.value) {
         logger.verbose('Adapter not discoverable, enabling...');
-        await this.adapterProperties.Set(BLUEZ_ADAPTER_ID, 'Discoverable', new dbus.Variant('b', 1));
+        await this.adapterProperties.Set(
+          BLUEZ_ADAPTER_ID,
+          'Discoverable',
+          new dbus.Variant('b', 1),
+        );
       }
 
       logger.verbose('Adapter is ready');
@@ -524,7 +532,7 @@ class PlejBLEHandler extends EventEmitter {
     try {
       await this.adapterProperties.Set(BLUEZ_ADAPTER_ID, 'Powered', new dbus.Variant('b', 1));
       await delay(5000);
-      
+
       // Verify the adapter is actually powered on
       const powered = await this.adapterProperties.Get(BLUEZ_ADAPTER_ID, 'Powered');
       if (!powered.value) {
@@ -562,15 +570,60 @@ class PlejBLEHandler extends EventEmitter {
       logger.verbose('Discovery stopped successfully');
     } catch (err) {
       if (err.message.includes('Operation already in progress')) {
-        logger.warn('Discovery stop failed - operation already in progress, this is expected during cleanup');
+        logger.warn(
+          'Discovery stop failed - operation already in progress, this is expected during cleanup',
+        );
       } else if (err.message.includes('Resource Not Ready')) {
-        logger.warn('Discovery stop failed - Resource Not Ready, adapter may need re-initialization');
+        logger.warn(
+          'Discovery stop failed - Resource Not Ready, adapter may need re-initialization',
+        );
         // Don't reset adapter here, let the calling code handle re-initialization
       } else {
         logger.error('Failed to stop discovery during cleanup:', err);
       }
     } finally {
       this.discoveryInProgress = false;
+    }
+  }
+
+  async _forceStopDiscovery() {
+    logger.verbose('Force stopping discovery with multiple attempts...');
+
+    // eslint-disable-next-line no-restricted-syntax
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        if (this.adapter && this.discoveryInProgress) {
+          logger.verbose(`Force stop attempt ${attempt}/3`);
+          // eslint-disable-next-line no-await-in-loop
+          await this.adapter.StopDiscovery();
+          logger.verbose(`Discovery force stopped on attempt ${attempt}`);
+          break;
+        }
+      } catch (err) {
+        logger.warn(`Force stop attempt ${attempt} failed:`, err.message);
+        if (attempt === 3) {
+          logger.error('All force stop attempts failed, proceeding anyway');
+        } else {
+          // eslint-disable-next-line no-await-in-loop
+          await delay(1000 * attempt); // Exponential backoff
+        }
+      }
+    }
+
+    this.discoveryInProgress = false;
+  }
+
+  async _waitForDiscoveryState(timeoutMs = 10000) {
+    const startTime = Date.now();
+
+    while (this.discoveryInProgress && Date.now() - startTime < timeoutMs) {
+      // eslint-disable-next-line no-await-in-loop
+      await delay(500);
+    }
+
+    if (this.discoveryInProgress) {
+      logger.warn('Discovery state did not clear within timeout, forcing stop');
+      await this._forceStopDiscovery();
     }
   }
 
@@ -613,72 +666,97 @@ class PlejBLEHandler extends EventEmitter {
   }
 
   async _startGetPlejdDevice() {
-    // Check if discovery is already running
-    if (this.discoveryInProgress) {
-      logger.warn('Discovery already in progress, stopping it first...');
-      await this._stopDiscoverySafely();
-      await delay(1000); // Wait a bit for the previous discovery to fully stop
-    }
+    const maxRetries = 3;
+    let retryCount = 0;
 
-    // Ensure adapter is valid before proceeding
-    if (!this.adapter) {
-      logger.warn('Adapter is null, re-initializing...');
-      await this._getInterface();
-    }
-
-    logger.verbose('Setting up interfacesAdded subscription and discovery filter');
-    this.objectManager.on('InterfacesAdded', (path, interfaces) =>
-      this._onInterfacesAdded(path, interfaces),
-    );
-
-    this.adapter.SetDiscoveryFilter({
-      UUIDs: new dbus.Variant('as', [PLEJD_SERVICE]),
-      Transport: new dbus.Variant('s', 'le'),
-    });
-
-    try {
-      logger.verbose('Starting BLE discovery... This can take up to 180 seconds.');
-      this._scheduleInternalInit();
-      await this.adapter.StartDiscovery();
-      this.discoveryInProgress = true;
-      logger.verbose('Started BLE discovery');
-    } catch (err) {
-      logger.error('Failed to start discovery.', err);
-      
-      if (err.message.includes('Operation already in progress')) {
-        logger.info(
-          'Discovery failed - operation already in progress. Attempting to stop and restart...',
-        );
-        try {
-          await this._stopDiscoverySafely();
-          await delay(2000); // Wait longer for the operation to fully complete
-          
-          // Ensure adapter is still valid after stopping discovery
-          if (!this.adapter) {
-            logger.warn('Adapter became null after stopping discovery, re-initializing...');
-            await this._getInterface();
-          }
-          
-          await this.adapter.StartDiscovery();
-          this.discoveryInProgress = true;
-          logger.verbose('Successfully restarted BLE discovery after stop/start');
-        } catch (retryErr) {
-          logger.error('Failed to restart discovery after stop/start:', retryErr);
-          if (retryErr.message.includes('Operation already in progress')) {
-            await this._handleDiscoveryFailure('operation_already_in_progress');
-          } else {
-            throw new Error(
-              'Failed to start discovery. Make sure no other add-on is currently scanning.',
-            );
-          }
+    // eslint-disable-next-line no-restricted-syntax
+    while (retryCount < maxRetries) {
+      try {
+        // Ensure discovery is completely stopped before starting
+        if (this.discoveryInProgress) {
+          logger.warn('Discovery already in progress, force stopping...');
+          // eslint-disable-next-line no-await-in-loop
+          await this._forceStopDiscovery();
+          // eslint-disable-next-line no-await-in-loop
+          await this._waitForDiscoveryState(5000);
         }
-      } else if (err.message.includes('Resource Not Ready')) {
-        logger.warn('Discovery failed - Resource Not Ready. Adapter may need power cycling...');
-        await this._handleDiscoveryFailure('resource_not_ready');
-      } else {
-        throw new Error(
-          'Failed to start discovery. Make sure no other add-on is currently scanning.',
+
+        // Ensure adapter is valid before proceeding
+        if (!this.adapter) {
+          logger.warn('Adapter is null, re-initializing...');
+          // eslint-disable-next-line no-await-in-loop
+          await this._getInterface();
+        }
+
+        // Validate adapter state
+        if (!this._validateAdapter()) {
+          logger.warn('Adapter validation failed, re-initializing...');
+          // eslint-disable-next-line no-await-in-loop
+          await this._getInterface();
+        }
+
+        logger.verbose('Setting up interfacesAdded subscription and discovery filter');
+        this.objectManager.on('InterfacesAdded', (path, interfaces) =>
+          this._onInterfacesAdded(path, interfaces),
         );
+
+        this.adapter.SetDiscoveryFilter({
+          UUIDs: new dbus.Variant('as', [PLEJD_SERVICE]),
+          Transport: new dbus.Variant('s', 'le'),
+        });
+
+        logger.verbose('Starting BLE discovery... This can take up to 180 seconds.');
+        this._scheduleInternalInit();
+        // eslint-disable-next-line no-await-in-loop
+        await this.adapter.StartDiscovery();
+        this.discoveryInProgress = true;
+        logger.verbose('Started BLE discovery successfully');
+        return; // Success, exit retry loop
+      } catch (err) {
+        retryCount++;
+        logger.error(`Discovery attempt ${retryCount}/${maxRetries} failed:`, err.message);
+
+        if (err.message.includes('Operation already in progress')) {
+          logger.info('Operation already in progress - attempting recovery...');
+
+          if (retryCount < maxRetries) {
+            // Try force stopping and waiting longer
+            // eslint-disable-next-line no-await-in-loop
+            await this._forceStopDiscovery();
+            // eslint-disable-next-line no-await-in-loop
+            await delay(3000 + retryCount * 2000); // Exponential backoff
+
+            // Re-initialize adapter if needed
+            if (!this.adapter) {
+              logger.warn('Adapter became null, re-initializing...');
+              // eslint-disable-next-line no-await-in-loop
+              await this._getInterface();
+            }
+            // eslint-disable-next-line no-continue
+            continue; // Retry
+          } else {
+            // Last attempt failed, try power cycle
+            logger.warn('All retries exhausted, attempting power cycle...');
+            // eslint-disable-next-line no-await-in-loop
+            await this._handleDiscoveryFailure('operation_already_in_progress');
+            return;
+          }
+        } else if (err.message.includes('Resource Not Ready')) {
+          logger.warn('Resource Not Ready - attempting power cycle...');
+          // eslint-disable-next-line no-await-in-loop
+          await this._handleDiscoveryFailure('resource_not_ready');
+          return;
+        } else if (retryCount < maxRetries) {
+          logger.warn(`Retrying in ${retryCount * 2} seconds...`);
+          // eslint-disable-next-line no-await-in-loop
+          await delay(retryCount * 2000);
+          // eslint-disable-next-line no-continue
+          continue;
+        } else {
+          throw new Error(
+            'Failed to start discovery after all retries. Make sure no other add-on is currently scanning.',
+          );
+        }
       }
     }
   }
@@ -687,22 +765,37 @@ class PlejBLEHandler extends EventEmitter {
     logger.info(
       `Handling discovery failure: ${failureType}. If you continue to get errors, you can try power cycling the bluetooth adapter. Get root console access, run "bluetoothctl" => "power off" => "power on" => "exit" => restart addon.`,
     );
-    
+
     try {
+      // First, ensure discovery is completely stopped
+      await this._forceStopDiscovery();
+      await this._waitForDiscoveryState(10000);
+
       // Try power cycling as last resort
       logger.verbose('Attempting power cycle to resolve discovery issues...');
-      await delay(500);
+      await delay(1000);
       await this._powerCycleAdapter();
-      await delay(3000); // Wait longer for adapter to fully initialize
-      
+      await delay(5000); // Wait longer for adapter to fully initialize
+
       // Re-initialize the adapter after power cycle
       await this._getInterface();
-      
+
       // Ensure adapter is valid before proceeding
       if (!this.adapter) {
         throw new Error('Failed to re-initialize adapter after power cycle');
       }
-      
+
+      // Validate adapter state
+      if (!this._validateAdapter()) {
+        throw new Error('Adapter validation failed after power cycle');
+      }
+
+      // Set up discovery filter again
+      this.adapter.SetDiscoveryFilter({
+        UUIDs: new dbus.Variant('as', [PLEJD_SERVICE]),
+        Transport: new dbus.Variant('s', 'le'),
+      });
+
       await delay(2000);
       await this.adapter.StartDiscovery();
       this.discoveryInProgress = true;
@@ -801,7 +894,7 @@ class PlejBLEHandler extends EventEmitter {
             await this._powerCycleAdapter();
             // Re-initialize the adapter after power cycle
             await this._getInterface();
-            
+
             // Validate adapter after re-initialization
             if (!this._validateAdapter()) {
               logger.error('Adapter validation failed after power cycle');

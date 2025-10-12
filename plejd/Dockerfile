@@ -1,7 +1,7 @@
-ARG BUILD_FROM=hassioaddons/base:15.0.5
-FROM $BUILD_FROM as builder
+ARG BUILD_FROM=ghcr.io/hassio-addons/base:18.1.4
+FROM $BUILD_FROM AS builder
 
-ENV LANG C.UTF-8
+ENV LANG=C.UTF-8
 
 # Set shell
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
@@ -27,16 +27,13 @@ RUN \
   nodejs \
   npm \
   dbus-dev \
-  glib-dev \
-  \
-  && npm config set unsafe-perm true
+  glib-dev
 
 WORKDIR /plejd
 COPY ./package.json /plejd/
 RUN npm install \
   --no-audit \
-  --no-update-notifier \
-  --unsafe-perm
+  --no-update-notifier
 
 FROM builder AS runtime
 # Copy data for add-on
@@ -49,20 +46,3 @@ COPY rootfs /
 ARG BUILD_DATE
 ARG BUILD_REF
 ARG BUILD_VERSION
-
-# Labels
-LABEL \
-  io.hass.name="Plejd" \
-  io.hass.description="Adds support for the Swedish home automation devices from Plejd." \
-  io.hass.arch="${BUILD_ARCH}" \
-  io.hass.type="addon" \
-  io.hass.version=${BUILD_VERSION} \
-  maintainer="chickenTurtle" \
-  org.label-schema.description="Adds support for the Swedish home automation devices from Plejd." \
-  org.label-schema.build-date=${BUILD_DATE} \
-  org.label-schema.name="Plejd" \
-  org.label-schema.schema-version="1.0" \
-  org.label-schema.usage="https://github.com/chickenTurtle/plejd/tree/master/README.md" \
-  org.label-schema.vcs-ref=${BUILD_REF} \
-  org.label-schema.vcs-url="https://github.com/chickenTurtle/plejd"
-
