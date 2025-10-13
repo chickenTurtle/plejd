@@ -1,10 +1,10 @@
-const SceneStep = require('./SceneStep');
+const SceneStep = require('../scene/SceneStep');
 
 class Scene {
   /**
-   * @param {import('./DeviceRegistry')} deviceRegistry
+   * @param {import('../DeviceRegistry')} deviceRegistry
    * @param {number} idx
-   * @param {import("./types/ApiSite").Scene} scene
+   * @param {import("../types/ApiSite").Scene} scene
    */
   constructor(deviceRegistry, idx, scene) {
     this.id = idx;

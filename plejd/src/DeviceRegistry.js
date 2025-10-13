@@ -1,11 +1,11 @@
-const Logger = require('./Logger');
+const Logger = require('./helpers/Logger');
 
 const logger = Logger.getLogger('device-registry');
 class DeviceRegistry {
   /** @type {string} */
   cryptoKey = null;
 
-  /** @private @type {Object.<string, import('types/ApiSite').Device>} */
+  /** @private @type {Object.<string, import('./types/ApiSite').Device>} */
   devices = {};
   /** @private @type {Object.<string, number>} */
   mainBleIdByDeviceId = {};
@@ -20,11 +20,11 @@ class DeviceRegistry {
   apiSite;
 
   // Dictionaries of [id]: device per type
-  /** @private @type {import('types/DeviceRegistry').OutputDevices} */
+  /** @private @type {import('./types/DeviceRegistry').OutputDevices} */
   outputDevices = {};
-  /** @private @type {import('types/DeviceRegistry').OutputDevices} */
+  /** @private @type {import('./types/DeviceRegistry').OutputDevices} */
   sceneDevices = {};
-  /** @private @type {import('types/DeviceRegistry').InputDevices} */
+  /** @private @type {import('./types/DeviceRegistry').InputDevices} */
   inputDevices = {};
 
   /** @param device {import('./types/ApiSite').Device} */
@@ -32,7 +32,7 @@ class DeviceRegistry {
     this.devices[device.deviceId] = device;
   }
 
-  /** @param inputDevice {import('types/DeviceRegistry').InputDevice} */
+  /** @param inputDevice {import('./types/DeviceRegistry').InputDevice} */
   addInputDevice(inputDevice) {
     this.inputDevices = {
       ...this.inputDevices,
@@ -53,7 +53,7 @@ class DeviceRegistry {
     }
   }
 
-  /** @param outputDevice {import('types/DeviceRegistry').OutputDevice} */
+  /** @param outputDevice {import('./types/DeviceRegistry').OutputDevice} */
   addOutputDevice(outputDevice) {
     const alreadyExistingBLEDevice = this.getOutputDeviceByBleOutputAddress(
       outputDevice.bleOutputAddress,
@@ -99,7 +99,7 @@ class DeviceRegistry {
     }
   }
 
-  /** @param scene {import('types/DeviceRegistry').OutputDevice} */
+  /** @param scene {import('./types/DeviceRegistry').OutputDevice} */
   addScene(scene) {
     this.sceneDevices = {
       ...this.sceneDevices,

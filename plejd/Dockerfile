@@ -37,7 +37,7 @@ RUN npm install --omit=dev \
 
 FROM builder AS runtime
 # Copy data for add-on
-COPY ./*.js /plejd/
+COPY ./src /plejd/
 COPY ./config.json /plejd/
 # Copy root filesystem
 COPY rootfs /

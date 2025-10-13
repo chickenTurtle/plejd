@@ -1,8 +1,8 @@
 const EventEmitter = require('events');
 const mqtt = require('mqtt');
 
-const Configuration = require('./Configuration');
-const Logger = require('./Logger');
+const Configuration = require('../helpers/Configuration');
+const Logger = require('../helpers/Logger');
 
 const startTopics = ['hass/status', 'homeassistant/status'];
 
@@ -11,7 +11,7 @@ const logger = Logger.getLogger('plejd-mqtt');
 const discoveryPrefix = 'homeassistant';
 const nodeId = 'plejd';
 
-/** @type {import('./types/Mqtt').MQTT_TYPES} */
+/** @type {import('../types/Mqtt').MQTT_TYPES} */
 const MQTT_TYPES = {
   LIGHT: 'light',
   SCENE: 'scene',
@@ -19,7 +19,7 @@ const MQTT_TYPES = {
   DEVICE_AUTOMATION: 'device_automation',
 };
 
-/** @type {import('./types/Mqtt').TOPIC_TYPES} */
+/** @type {import('../types/Mqtt').TOPIC_TYPES} */
 const TOPIC_TYPES = {
   CONFIG: 'config',
   STATE: 'state',
@@ -32,8 +32,8 @@ const getBaseTopic = (/** @type { string } */ uniqueId, /** @type { string } */ 
 
 const getTopicName = (
   /** @type { string } */ uniqueId,
-  /** @type { import('./types/Mqtt').MqttType } */ mqttDeviceType,
-  /** @type { import('./types/Mqtt').TopicType } */ topicType,
+  /** @type { import('../types/Mqtt').MqttType } */ mqttDeviceType,
+  /** @type { import('../types/Mqtt').TopicType } */ topicType,
 ) => `${getBaseTopic(uniqueId, mqttDeviceType)}/${topicType}`;
 
 const getButtonEventTopic = (/** @type {string} */ deviceId) =>
@@ -56,7 +56,7 @@ const decodeTopic = (topic) => {
 };
 
 const getOutputDeviceDiscoveryPayload = (
-  /** @type {import('./types/DeviceRegistry').OutputDevice} */ device,
+  /** @type {import('../types/DeviceRegistry').OutputDevice} */ device,
 ) => ({
   name: null,
   unique_id: device.uniqueId,
@@ -79,7 +79,7 @@ const getOutputDeviceDiscoveryPayload = (
 });
 
 const getSceneDiscoveryPayload = (
-  /** @type {import('./types/DeviceRegistry').OutputDevice} */ sceneDevice,
+  /** @type {import('../types/DeviceRegistry').OutputDevice} */ sceneDevice,
 ) => ({
   name: sceneDevice.name,
   unique_id: sceneDevice.uniqueId,
@@ -92,7 +92,7 @@ const getSceneDiscoveryPayload = (
 });
 
 const getInputDeviceTriggerDiscoveryPayload = (
-  /** @type {import('./types/DeviceRegistry').InputDevice} */ inputDevice,
+  /** @type {import('../types/DeviceRegistry').InputDevice} */ inputDevice,
 ) => ({
   automation_type: 'trigger',
   payload: `${inputDevice.input}`,
@@ -110,7 +110,7 @@ const getInputDeviceTriggerDiscoveryPayload = (
 });
 
 const getSceneDeviceTriggerhDiscoveryPayload = (
-  /** @type {import('./types/DeviceRegistry').OutputDevice} */ sceneDevice,
+  /** @type {import('../types/DeviceRegistry').OutputDevice} */ sceneDevice,
 ) => ({
   automation_type: 'trigger',
   '~': getBaseTopic(`${sceneDevice.uniqueId}_trig`, MQTT_TYPES.DEVICE_AUTOMATION),
@@ -130,7 +130,7 @@ const getMqttStateString = (/** @type {boolean} */ state) => (state ? 'ON' : 'OF
 const AVAILABLILITY = { ONLINE: 'online', OFFLINE: 'offline' };
 
 class MqttClient extends EventEmitter {
-  /** @type {import('DeviceRegistry')} */
+  /** @type {import('../DeviceRegistry')} */
   deviceRegistry;
 
   static EVENTS = {
@@ -139,7 +139,7 @@ class MqttClient extends EventEmitter {
   };
 
   /**
-   * @param {import("DeviceRegistry")} deviceRegistry
+   * @param {import("../DeviceRegistry")} deviceRegistry
    */
   constructor(deviceRegistry) {
     super();
@@ -204,7 +204,7 @@ class MqttClient extends EventEmitter {
           logger.verbose(`Received mqtt message on ${topic}`);
           const decodedTopic = decodeTopic(topic);
           if (decodedTopic) {
-            /** @type {import('types/DeviceRegistry').OutputDevice} */
+            /** @type {import('../types/DeviceRegistry').OutputDevice} */
             let device;
 
             if (decodedTopic.type === MQTT_TYPES.SCENE) {

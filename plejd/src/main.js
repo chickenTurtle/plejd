@@ -1,5 +1,5 @@
-const Configuration = require('./Configuration');
-const Logger = require('./Logger');
+const Configuration = require('./helpers/Configuration');
+const Logger = require('./helpers/Logger');
 const PlejdAddon = require('./PlejdAddon');
 
 async function main() {

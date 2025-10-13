@@ -1,6 +1,6 @@
 class SceneStep {
   /**
-   * @param {import("./types/ApiSite").SceneStep} step
+   * @param {import("../types/ApiSite").SceneStep} step
    */
   constructor(step) {
     this.sceneId = step.sceneId;

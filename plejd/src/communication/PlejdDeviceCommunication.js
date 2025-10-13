@@ -1,7 +1,7 @@
 const { EventEmitter } = require('events');
-const Configuration = require('./Configuration');
-const constants = require('./constants');
-const Logger = require('./Logger');
+const Configuration = require('../helpers/Configuration');
+const constants = require('../helpers/constants');
+const Logger = require('../helpers/Logger');
 const PlejBLEHandler = require('./PlejdBLEHandler');
 
 const { COMMANDS } = constants;
@@ -15,7 +15,7 @@ class PlejdDeviceCommunication extends EventEmitter {
   bleOutputTransitionTimers = {};
   plejdBleHandler;
   config;
-  /** @type {import('./DeviceRegistry')} */
+  /** @type {import('../DeviceRegistry')} */
   deviceRegistry;
   // eslint-disable-next-line max-len
   /** @type {{uniqueOutputId: string, command: string, data: any, shouldRetry: boolean, retryCount?: number}[]} */

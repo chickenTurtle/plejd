@@ -1,11 +1,11 @@
-const Logger = require('./Logger');
+const Logger = require('../helpers/Logger');
 const Scene = require('./Scene');
 
 const logger = Logger.getLogger('scene-manager');
 class SceneManager {
-  /** @private @type {import('./DeviceRegistry')} */
+  /** @private @type {import('../DeviceRegistry')} */
   deviceRegistry;
-  /** @private @type {import('./PlejdDeviceCommunication')} */
+  /** @private @type {import('../communication/PlejdDeviceCommunication')} */
   plejdDeviceCommunication;
   /** @private @type {Object.<string,Scene>} */
   scenes;

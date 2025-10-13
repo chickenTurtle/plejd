@@ -1,7 +1,7 @@
 const fs = require('fs');
 
-const Configuration = require('./Configuration');
-const Logger = require('./Logger');
+const Configuration = require('../helpers/Configuration');
+const Logger = require('../helpers/Logger');
 
 const API_APP_ID = 'zHtVqXt8k4yFyk2QGmgp48D9xZr2G94xWYnF4dak';
 const API_BASE_URL = 'https://cloud.plejd.com/parse/';
@@ -18,10 +18,10 @@ const TRAITS = {
 const logger = Logger.getLogger('plejd-api');
 
 class PlejdApi {
-  /** @private @type {import('types/Configuration').Options} */
+  /** @private @type {import('../types/Configuration').Options} */
   config;
 
-  /** @private @type {import('DeviceRegistry')} */
+  /** @private @type {import('../DeviceRegistry')} */
   deviceRegistry;
 
   /** @private @type {string} */
@@ -30,11 +30,11 @@ class PlejdApi {
   /** @private @type {string} */
   siteId;
 
-  /** @private @type {import('types/ApiSite').ApiSite} */
+  /** @private @type {import('../types/ApiSite').ApiSite} */
   siteDetails;
 
   /**
-   * @param {import("./DeviceRegistry")} deviceRegistry
+   * @param {import("../DeviceRegistry")} deviceRegistry
    */
   constructor(deviceRegistry) {
     this.config = Configuration.getOptions();
@@ -80,7 +80,7 @@ class PlejdApi {
     this.getDevices();
   }
 
-  /** @returns {Promise<import('types/ApiSite').CachedSite>} */
+  /** @returns {Promise<import('../types/ApiSite').CachedSite>} */
   // eslint-disable-next-line class-methods-use-this
   async getCachedCopy() {
     logger.info('Getting cached api response from disk');
@@ -99,7 +99,7 @@ class PlejdApi {
   async saveCachedCopy() {
     logger.info('Saving cached copy');
     try {
-      /** @type {import('types/ApiSite').CachedSite} */
+      /** @type {import('../types/ApiSite').CachedSite} */
       const cachedSite = {
         siteId: this.siteId,
         siteDetails: this.siteDetails,
@@ -522,7 +522,7 @@ class PlejdApi {
             const room = this.siteDetails.rooms.find((x) => x.roomId === device.roomId);
             const roomTitle = room ? room.title : undefined;
 
-            /** @type {import('types/DeviceRegistry').OutputDevice} */
+            /** @type {import('../types/DeviceRegistry').OutputDevice} */
             const outputDevice = {
               bleOutputAddress,
               deviceId: device.deviceId,
@@ -578,7 +578,7 @@ class PlejdApi {
             const decodedDeviceType = this._getDeviceType(plejdDevice);
 
             if (decodedDeviceType.broadcastClicks) {
-              /** @type {import('types/DeviceRegistry').InputDevice} */
+              /** @type {import('../types/DeviceRegistry').InputDevice} */
               const inputDevice = {
                 bleInputAddress,
                 deviceId: device.deviceId,
@@ -626,7 +626,7 @@ class PlejdApi {
             (deviceId) => this.deviceRegistry.getOutputDevice(deviceId).dimmable,
           );
 
-        /** @type {import('types/DeviceRegistry').OutputDevice} */
+        /** @type {import('../types/DeviceRegistry').OutputDevice} */
         const newDevice = {
           bleOutputAddress: roomAddress,
           deviceId: null,
@@ -656,7 +656,7 @@ class PlejdApi {
 
     scenes.forEach((scene) => {
       const sceneNum = this.siteDetails.sceneIndex[scene.sceneId];
-      /** @type {import('types/DeviceRegistry').OutputDevice} */
+      /** @type {import('../types/DeviceRegistry').OutputDevice} */
       const newScene = {
         bleOutputAddress: sceneNum,
         deviceId: undefined,
