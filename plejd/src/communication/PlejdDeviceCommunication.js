@@ -300,6 +300,13 @@ class PlejdDeviceCommunication extends EventEmitter {
       // Store the dim level in the device registry for when the light is turned on
       this.deviceRegistry.setOutputState(uniqueOutputId, false, brightness);
 
+      this._appendCommandToWriteQueue(
+        uniqueOutputId,
+        COMMANDS.SET_DIM_LEVEL,
+        brightness,
+        shouldRetry,
+      );
+
       logger.debug(
         `Stored dim level ${brightness} for ${deviceName} (${uniqueOutputId}) - will be used when light turns on`,
       );
