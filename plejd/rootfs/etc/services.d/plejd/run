@@ -1,4 +1,4 @@
-#!/usr/bin/with-contenv bashio
+#!/command/with-contenv bashio
 # ==============================================================================
 # Community Hass.io Add-ons: Plejd
 # Runs the Plejd service

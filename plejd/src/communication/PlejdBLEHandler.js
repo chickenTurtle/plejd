@@ -3,9 +3,9 @@ const crypto = require('crypto');
 const xor = require('buffer-xor');
 const { EventEmitter } = require('events');
 
-const Configuration = require('./Configuration');
-const constants = require('./constants');
-const Logger = require('./Logger');
+const Configuration = require('../helpers/Configuration');
+const constants = require('../helpers/constants');
+const Logger = require('../helpers/Logger');
 
 const { COMMANDS } = constants;
 const logger = Logger.getLogger('plejd-ble');
@@ -51,13 +51,13 @@ class PlejBLEHandler extends EventEmitter {
   config;
   bleDevices = [];
   bus = null;
-  /** @type {import('types/ApiSite').Device} */
+  /** @type {import('../types/ApiSite').Device} */
   connectedDevice = null;
   /** @type Number? */
   connectedDeviceId = null;
   consecutiveWriteFails;
   consecutiveReconnectAttempts = 0;
-  /** @type {import('./DeviceRegistry')} */
+  /** @type {import('../DeviceRegistry')} */
   deviceRegistry;
   discoveryTimeout = null;
   plejdService = null;

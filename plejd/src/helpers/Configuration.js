@@ -1,9 +1,9 @@
 const fs = require('fs');
 
 class Configuration {
-  /** @type {import('types/Configuration').Options} */
+  /** @type {import('../types/Configuration').Options} */
   static _options = null;
-  /** @type {import('types/Configuration').AddonInfo} */
+  /** @type {import('../types/Configuration').AddonInfo} */
   static _addonInfo = null;
 
   /** @returns Options */

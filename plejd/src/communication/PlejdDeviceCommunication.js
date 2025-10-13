@@ -1,7 +1,7 @@
 const { EventEmitter } = require('events');
-const Configuration = require('./Configuration');
-const constants = require('./constants');
-const Logger = require('./Logger');
+const Configuration = require('../helpers/Configuration');
+const constants = require('../helpers/constants');
+const Logger = require('../helpers/Logger');
 const PlejBLEHandler = require('./PlejdBLEHandler');
 
 const { COMMANDS } = constants;
@@ -15,7 +15,7 @@ class PlejdDeviceCommunication extends EventEmitter {
   bleOutputTransitionTimers = {};
   plejdBleHandler;
   config;
-  /** @type {import('./DeviceRegistry')} */
+  /** @type {import('../DeviceRegistry')} */
   deviceRegistry;
   // eslint-disable-next-line max-len
   /** @type {{uniqueOutputId: string, command: string, data: any, shouldRetry: boolean, retryCount?: number}[]} */
@@ -81,29 +81,27 @@ class PlejdDeviceCommunication extends EventEmitter {
   }
 
   turnOn(uniqueOutputId, command) {
-    if (!this.bleConnected)
-      return
+    if (!this.bleConnected) return;
     const deviceName = this.deviceRegistry.getOutputDeviceName(uniqueOutputId);
     const device = this.deviceRegistry.getOutputDevice(uniqueOutputId);
-    
+
     // Use stored dim level if no brightness specified and device has a stored dim level
-    let brightness = command.brightness;
+    let { brightness } = command;
     if (!brightness && device && device.dim !== undefined) {
       brightness = device.dim;
       logger.debug(`Using stored dim level ${brightness} for ${deviceName}`);
     }
-    
+
     logger.info(
-      `Plejd got turn on command for ${deviceName} (${uniqueOutputId}), brightness ${
-        brightness
-      }${command.transition ? `, transition: ${command.transition}` : ''}`,
+      `Plejd got turn on command for ${deviceName} (${uniqueOutputId}), brightness ${brightness}${
+        command.transition ? `, transition: ${command.transition}` : ''
+      }`,
     );
     this._transitionTo(uniqueOutputId, brightness, command.transition, deviceName);
   }
 
   turnOff(uniqueOutputId, command) {
-    if (!this.bleConnected)
-      return
+    if (!this.bleConnected) return;
     const deviceName = this.deviceRegistry.getOutputDeviceName(uniqueOutputId);
     logger.info(
       `Plejd got turn off command for ${deviceName} (${uniqueOutputId})${
@@ -114,39 +112,40 @@ class PlejdDeviceCommunication extends EventEmitter {
   }
 
   setDimLevel(uniqueOutputId, brightness, transition = null) {
-    if (!this.bleConnected)
-      return
+    if (!this.bleConnected) return;
     const deviceName = this.deviceRegistry.getOutputDeviceName(uniqueOutputId);
     const device = this.deviceRegistry.getOutputDevice(uniqueOutputId);
-    
+
     if (!device) {
       logger.warn(`Device ${uniqueOutputId} not found`);
       return;
     }
-    
+
     if (!device.dimmable) {
       logger.warn(`Device ${deviceName} (${uniqueOutputId}) is not dimmable`);
       return;
     }
-    
+
     if (brightness < 0 || brightness > 255) {
       logger.warn(`Invalid brightness value ${brightness}. Must be between 0-255`);
       return;
     }
-    
+
     logger.info(
       `Plejd got set dim level command for ${deviceName} (${uniqueOutputId}), brightness: ${brightness}${
         transition ? `, transition: ${transition}` : ''
       }`,
     );
-    
+
     // Only set brightness if the device is currently on
     if (device.state) {
       this._transitionTo(uniqueOutputId, brightness, transition, deviceName);
     } else {
       // If device is off, just set the brightness level without turning it on
       // This will be used when the device is turned on later
-      logger.debug(`Device ${deviceName} is off, setting dim level to ${brightness} for when it's turned on`);
+      logger.debug(
+        `Device ${deviceName} is off, setting dim level to ${brightness} for when it's turned on`,
+      );
       this._setDimLevelOnly(uniqueOutputId, brightness, true, deviceName);
     }
   }
@@ -300,13 +299,15 @@ class PlejdDeviceCommunication extends EventEmitter {
 
       // Store the dim level in the device registry for when the light is turned on
       this.deviceRegistry.setOutputState(uniqueOutputId, false, brightness);
-      
-      logger.debug(`Stored dim level ${brightness} for ${deviceName} (${uniqueOutputId}) - will be used when light turns on`);
-      
+
+      logger.debug(
+        `Stored dim level ${brightness} for ${deviceName} (${uniqueOutputId}) - will be used when light turns on`,
+      );
+
       // Emit state change to update Home Assistant
       this.emit(PlejdDeviceCommunication.EVENTS.stateChanged, uniqueOutputId, {
         state: 0,
-        brightness: brightness
+        brightness,
       });
     }
   }

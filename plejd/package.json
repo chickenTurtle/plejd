@@ -1,10 +1,8 @@
 {
   "dependencies": {
-    "@abandonware/bluetooth-hci-socket": "~0.5.3-7",
-    "axios": "~0.21.1",
+    "@abandonware/bluetooth-hci-socket": "~0.5.3-12",
     "buffer-xor": "~2.0.2",
     "dbus-next": "~0.9.2",
-    "fs": "0.0.1-security",
     "jspack": "~0.0.4",
     "mqtt": "~4.2.6",
     "winston": "3.2.1"

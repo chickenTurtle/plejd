@@ -80,26 +80,6 @@ class Logger {
   }
 
   static logLevels() {
-    // Default (npm) levels
-    // levels = {
-    //     error: 0,
-    //     warn: 1,
-    //     info: 2,
-    //     http: 3,
-    //     verbose: 4,
-    //     debug: 5,
-    //     silly: 6
-    // }
-    // colors = {
-    //     error: 'red',
-    //     warn: 'yellow',
-    //     info: 'green',
-    //     http: 'green',
-    //     verbose: 'cyan',
-    //     debug: 'blue',
-    //     silly: 'magenta'
-    //   };
-
     // Mimic HA standard below
     // Debug/verbose swapped compared to npm levels, http omitted
     return {

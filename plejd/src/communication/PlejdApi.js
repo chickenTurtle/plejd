@@ -1,8 +1,7 @@
-const axios = require('axios').default;
 const fs = require('fs');
 
-const Configuration = require('./Configuration');
-const Logger = require('./Logger');
+const Configuration = require('../helpers/Configuration');
+const Logger = require('../helpers/Logger');
 
 const API_APP_ID = 'zHtVqXt8k4yFyk2QGmgp48D9xZr2G94xWYnF4dak';
 const API_BASE_URL = 'https://cloud.plejd.com/parse/';
@@ -19,10 +18,10 @@ const TRAITS = {
 const logger = Logger.getLogger('plejd-api');
 
 class PlejdApi {
-  /** @private @type {import('types/Configuration').Options} */
+  /** @private @type {import('../types/Configuration').Options} */
   config;
 
-  /** @private @type {import('DeviceRegistry')} */
+  /** @private @type {import('../DeviceRegistry')} */
   deviceRegistry;
 
   /** @private @type {string} */
@@ -31,11 +30,11 @@ class PlejdApi {
   /** @private @type {string} */
   siteId;
 
-  /** @private @type {import('types/ApiSite').ApiSite} */
+  /** @private @type {import('../types/ApiSite').ApiSite} */
   siteDetails;
 
   /**
-   * @param {import("./DeviceRegistry")} deviceRegistry
+   * @param {import("../DeviceRegistry")} deviceRegistry
    */
   constructor(deviceRegistry) {
     this.config = Configuration.getOptions();
@@ -81,7 +80,7 @@ class PlejdApi {
     this.getDevices();
   }
 
-  /** @returns {Promise<import('types/ApiSite').CachedSite>} */
+  /** @returns {Promise<import('../types/ApiSite').CachedSite>} */
   // eslint-disable-next-line class-methods-use-this
   async getCachedCopy() {
     logger.info('Getting cached api response from disk');
@@ -100,7 +99,7 @@ class PlejdApi {
   async saveCachedCopy() {
     logger.info('Saving cached copy');
     try {
-      /** @type {import('types/ApiSite').CachedSite} */
+      /** @type {import('../types/ApiSite').CachedSite} */
       const cachedSite = {
         siteId: this.siteId,
         siteDetails: this.siteDetails,
@@ -121,22 +120,25 @@ class PlejdApi {
     logger.debug(`sending POST to ${API_BASE_URL}${API_LOGIN_URL}`);
 
     try {
-      const response = await this._getAxiosInstance().post(API_LOGIN_URL, {
-        username: this.config.username,
-        password: this.config.password,
+      const response = await this._makeRequest(API_LOGIN_URL, {
+        method: 'POST',
+        body: JSON.stringify({
+          username: this.config.username,
+          password: this.config.password,
+        }),
       });
 
       logger.info('got session token response');
-      this.sessionToken = response.data.sessionToken;
+      this.sessionToken = response.sessionToken;
 
       if (!this.sessionToken) {
         logger.error('No session token received');
         throw new Error('API: No session token received.');
       }
     } catch (error) {
-      if (error.response.status === 400) {
+      if (error.status === 400) {
         logger.error('Server returned status 400. probably invalid credentials, please verify.');
-      } else if (error.response.status === 403) {
+      } else if (error.status === 403) {
         logger.error(
           'Server returned status 403, forbidden. Plejd service does this sometimes, despite correct credentials. Possibly throttling logins. Waiting a long time often fixes this.',
         );
@@ -155,9 +157,11 @@ class PlejdApi {
     logger.debug(`sending POST to ${API_BASE_URL}${API_SITE_LIST_URL}`);
 
     try {
-      const response = await this._getAxiosInstance().post(API_SITE_LIST_URL);
+      const response = await this._makeRequest(API_SITE_LIST_URL, {
+        method: 'POST',
+      });
 
-      const sites = response.data.result;
+      const sites = response.result;
       logger.info(
         `Got site list response with ${sites.length}: ${sites.map((s) => s.site.title).join(', ')}`,
       );
@@ -186,18 +190,21 @@ class PlejdApi {
     logger.debug(`sending POST to ${API_BASE_URL}${API_SITE_DETAILS_URL}`);
 
     try {
-      const response = await this._getAxiosInstance().post(API_SITE_DETAILS_URL, {
-        siteId: this.siteId,
+      const response = await this._makeRequest(API_SITE_DETAILS_URL, {
+        method: 'POST',
+        body: JSON.stringify({
+          siteId: this.siteId,
+        }),
       });
 
       logger.info('got site details response');
 
-      if (response.data.result.length === 0) {
+      if (response.result.length === 0) {
         logger.error(`No site with ID ${this.siteId} was found.`);
         throw new Error(`API: No site with ID ${this.siteId} was found.`);
       }
 
-      this.siteDetails = response.data.result[0];
+      this.siteDetails = response.result[0];
 
       logger.info(`Site details for site id ${this.siteId} found`);
       logger.silly(JSON.stringify(this.siteDetails, null, 2));
@@ -227,20 +234,47 @@ class PlejdApi {
     this._getSceneDevices();
   }
 
-  _getAxiosInstance() {
+  async _makeRequest(endpoint, options = {}) {
     const headers = {
       'X-Parse-Application-Id': API_APP_ID,
       'Content-Type': 'application/json',
+      ...options.headers,
     };
 
     if (this.sessionToken) {
       headers['X-Parse-Session-Token'] = this.sessionToken;
     }
 
-    return axios.create({
-      baseURL: API_BASE_URL,
+    const url = `${API_BASE_URL}${endpoint}`;
+    const fetchOptions = {
+      method: 'POST',
       headers,
-    });
+      ...options,
+    };
+
+    try {
+      const response = await fetch(url, fetchOptions);
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        const error = {
+          message: `HTTP ${response.status}: ${response.statusText}`,
+          status: response.status,
+          response: errorText,
+        };
+        throw error;
+      }
+
+      const data = await response.json();
+      return data;
+    } catch (error) {
+      if (error.status) {
+        // Re-throw HTTP errors with status
+        throw error;
+      }
+      // Re-throw other errors (network, JSON parsing, etc.)
+      throw new Error(`Request failed: ${error.message}`);
+    }
   }
 
   // eslint-disable-next-line class-methods-use-this
@@ -488,7 +522,7 @@ class PlejdApi {
             const room = this.siteDetails.rooms.find((x) => x.roomId === device.roomId);
             const roomTitle = room ? room.title : undefined;
 
-            /** @type {import('types/DeviceRegistry').OutputDevice} */
+            /** @type {import('../types/DeviceRegistry').OutputDevice} */
             const outputDevice = {
               bleOutputAddress,
               deviceId: device.deviceId,
@@ -544,7 +578,7 @@ class PlejdApi {
             const decodedDeviceType = this._getDeviceType(plejdDevice);
 
             if (decodedDeviceType.broadcastClicks) {
-              /** @type {import('types/DeviceRegistry').InputDevice} */
+              /** @type {import('../types/DeviceRegistry').InputDevice} */
               const inputDevice = {
                 bleInputAddress,
                 deviceId: device.deviceId,
@@ -592,7 +626,7 @@ class PlejdApi {
             (deviceId) => this.deviceRegistry.getOutputDevice(deviceId).dimmable,
           );
 
-        /** @type {import('types/DeviceRegistry').OutputDevice} */
+        /** @type {import('../types/DeviceRegistry').OutputDevice} */
         const newDevice = {
           bleOutputAddress: roomAddress,
           deviceId: null,
@@ -622,7 +656,7 @@ class PlejdApi {
 
     scenes.forEach((scene) => {
       const sceneNum = this.siteDetails.sceneIndex[scene.sceneId];
-      /** @type {import('types/DeviceRegistry').OutputDevice} */
+      /** @type {import('../types/DeviceRegistry').OutputDevice} */
       const newScene = {
         bleOutputAddress: sceneNum,
         deviceId: undefined,

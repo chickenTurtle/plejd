@@ -1,11 +1,11 @@
 const EventEmitter = require('events');
 
-const Configuration = require('./Configuration');
-const Logger = require('./Logger');
-const PlejdApi = require('./PlejdApi');
-const PlejdDeviceCommunication = require('./PlejdDeviceCommunication');
-const MqttClient = require('./MqttClient');
-const SceneManager = require('./SceneManager');
+const Configuration = require('./helpers/Configuration');
+const Logger = require('./helpers/Logger');
+const PlejdApi = require('./communication/PlejdApi');
+const PlejdDeviceCommunication = require('./communication/PlejdDeviceCommunication');
+const MqttClient = require('./communication/MqttClient');
+const SceneManager = require('./scene/SceneManager');
 const DeviceRegistry = require('./DeviceRegistry');
 
 const logger = Logger.getLogger('plejd-main');
