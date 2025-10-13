@@ -129,7 +129,7 @@ class PlejBLEHandler extends EventEmitter {
     // Stop discovery if it's running
     if (this.discoveryInProgress && this.adapter) {
       logger.verbose('Stopping discovery during cleanup...');
-      this._stopDiscoverySafely().catch(err => {
+      this._stopDiscoverySafely().catch((err) => {
         logger.error('Error stopping discovery during cleanup:', err);
       });
     } else {
@@ -192,7 +192,7 @@ class PlejBLEHandler extends EventEmitter {
       logger.info('BLE init done, waiting for devices.');
     } catch (err) {
       logger.error('Failed to initialize BLE:', err);
-      
+
       if (err.message.includes('Resource Not Ready')) {
         logger.warn('BLE adapter not ready, attempting power cycle and re-initialization...');
         try {
@@ -429,12 +429,13 @@ class PlejBLEHandler extends EventEmitter {
       logger.verbose(
         `Decoded: Device ${outputUniqueId} (BLE address ${bleOutputAddress}), name: ${deviceName} state: ${state}, dim: ${dim}`,
       );
-      // An event should fire here, which updates the current state of all devices.
-      // A problem that occurs is that the writeQueue in PlejdDeviceCommunication still
-      // has has elements event though the device registry is updated.
+
       this.deviceRegistry.setOutputState(device.uniqueId, state, dim);
-      //this.emit('stateChanged', device.uniqueId, {state: state, brightness: dim});
-      this.emit(PlejBLEHandler.EVENTS.currentState, device.uniqueId, {state: state, brightness: dim});
+
+      this.emit(PlejBLEHandler.EVENTS.currentState, device.uniqueId, {
+        state: state,
+        brightness: dim,
+      });
     }
   }
 
@@ -463,10 +464,10 @@ class PlejBLEHandler extends EventEmitter {
           const adapterObject = await this.bus.getProxyObject(BLUEZ_SERVICE_NAME, path);
           // eslint-disable-next-line no-await-in-loop
           this.adapterProperties = await adapterObject.getInterface(DBUS_PROP_INTERFACE);
-          
+
           // Check if adapter is ready
           await this._ensureAdapterReady();
-          
+
           this.adapter = adapterObject.getInterface(BLUEZ_ADAPTER_ID);
           // eslint-disable-next-line no-await-in-loop
           await this._cleanExistingConnections(managedObjects);
@@ -498,7 +499,11 @@ class PlejBLEHandler extends EventEmitter {
       const discoverable = await this.adapterProperties.Get(BLUEZ_ADAPTER_ID, 'Discoverable');
       if (!discoverable.value) {
         logger.verbose('Adapter not discoverable, enabling...');
-        await this.adapterProperties.Set(BLUEZ_ADAPTER_ID, 'Discoverable', new dbus.Variant('b', 1));
+        await this.adapterProperties.Set(
+          BLUEZ_ADAPTER_ID,
+          'Discoverable',
+          new dbus.Variant('b', 1),
+        );
       }
 
       logger.verbose('Adapter is ready');
@@ -524,7 +529,7 @@ class PlejBLEHandler extends EventEmitter {
     try {
       await this.adapterProperties.Set(BLUEZ_ADAPTER_ID, 'Powered', new dbus.Variant('b', 1));
       await delay(5000);
-      
+
       // Verify the adapter is actually powered on
       const powered = await this.adapterProperties.Get(BLUEZ_ADAPTER_ID, 'Powered');
       if (!powered.value) {
@@ -562,9 +567,13 @@ class PlejBLEHandler extends EventEmitter {
       logger.verbose('Discovery stopped successfully');
     } catch (err) {
       if (err.message.includes('Operation already in progress')) {
-        logger.warn('Discovery stop failed - operation already in progress, this is expected during cleanup');
+        logger.warn(
+          'Discovery stop failed - operation already in progress, this is expected during cleanup',
+        );
       } else if (err.message.includes('Resource Not Ready')) {
-        logger.warn('Discovery stop failed - Resource Not Ready, adapter may need re-initialization');
+        logger.warn(
+          'Discovery stop failed - Resource Not Ready, adapter may need re-initialization',
+        );
         // Don't reset adapter here, let the calling code handle re-initialization
       } else {
         logger.error('Failed to stop discovery during cleanup:', err);
@@ -644,7 +653,7 @@ class PlejBLEHandler extends EventEmitter {
       logger.verbose('Started BLE discovery');
     } catch (err) {
       logger.error('Failed to start discovery.', err);
-      
+
       if (err.message.includes('Operation already in progress')) {
         logger.info(
           'Discovery failed - operation already in progress. Attempting to stop and restart...',
@@ -652,13 +661,13 @@ class PlejBLEHandler extends EventEmitter {
         try {
           await this._stopDiscoverySafely();
           await delay(2000); // Wait longer for the operation to fully complete
-          
+
           // Ensure adapter is still valid after stopping discovery
           if (!this.adapter) {
             logger.warn('Adapter became null after stopping discovery, re-initializing...');
             await this._getInterface();
           }
-          
+
           await this.adapter.StartDiscovery();
           this.discoveryInProgress = true;
           logger.verbose('Successfully restarted BLE discovery after stop/start');
@@ -687,22 +696,22 @@ class PlejBLEHandler extends EventEmitter {
     logger.info(
       `Handling discovery failure: ${failureType}. If you continue to get errors, you can try power cycling the bluetooth adapter. Get root console access, run "bluetoothctl" => "power off" => "power on" => "exit" => restart addon.`,
     );
-    
+
     try {
       // Try power cycling as last resort
       logger.verbose('Attempting power cycle to resolve discovery issues...');
       await delay(500);
       await this._powerCycleAdapter();
       await delay(3000); // Wait longer for adapter to fully initialize
-      
+
       // Re-initialize the adapter after power cycle
       await this._getInterface();
-      
+
       // Ensure adapter is valid before proceeding
       if (!this.adapter) {
         throw new Error('Failed to re-initialize adapter after power cycle');
       }
-      
+
       await delay(2000);
       await this.adapter.StartDiscovery();
       this.discoveryInProgress = true;
@@ -801,7 +810,7 @@ class PlejBLEHandler extends EventEmitter {
             await this._powerCycleAdapter();
             // Re-initialize the adapter after power cycle
             await this._getInterface();
-            
+
             // Validate adapter after re-initialization
             if (!this._validateAdapter()) {
               logger.error('Adapter validation failed after power cycle');
