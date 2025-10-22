@@ -4,46 +4,47 @@ const xor = require('buffer-xor');
 const { EventEmitter } = require('events');
 
 const Configuration = require('../helpers/Configuration');
-const constants = require('../helpers/constants');
+const {
+  COMMANDS,
+  BLE,
+  PLEJD_UUIDS,
+  BLUEZ: {
+    SERVICE_NAME: BLUEZ_SERVICE_NAME,
+    ADAPTER_ID: BLUEZ_ADAPTER_ID,
+    DEVICE_ID: BLUEZ_DEVICE_ID,
+    GATT_SERVICE_ID,
+    GATT_CHAR_ID: GATT_CHRC_ID,
+  },
+  DBUS: { OM_INTERFACE: DBUS_OM_INTERFACE, PROP_INTERFACE: DBUS_PROP_INTERFACE },
+} = require('../helpers/constants');
 const Logger = require('../helpers/Logger');
 
-const { COMMANDS } = constants;
 const logger = Logger.getLogger('plejd-ble');
 
-// UUIDs
-const BLE_UUID_SUFFIX = '6085-4726-be45-040c957391b5';
-const PLEJD_SERVICE = `31ba0001-${BLE_UUID_SUFFIX}`;
-const DATA_UUID = `31ba0004-${BLE_UUID_SUFFIX}`;
-const LAST_DATA_UUID = `31ba0005-${BLE_UUID_SUFFIX}`;
-const AUTH_UUID = `31ba0009-${BLE_UUID_SUFFIX}`;
-const PING_UUID = `31ba000a-${BLE_UUID_SUFFIX}`;
-const PLEJD_LIGHTLEVEL_UUID = `31ba0003-${BLE_UUID_SUFFIX}`;
+const { PLEJD_SERVICE, AUTH_UUID, DATA_UUID, LAST_DATA_UUID, PING_UUID } = PLEJD_UUIDS;
+const { COMMANDS: BLE_COMMANDS, BROADCAST_DEVICE_ID: BLE_BROADCAST_DEVICE_ID } = BLE;
 
-const BLE_CMD_DIM_CHANGE = 0x00c8;
-const BLE_CMD_DIM2_CHANGE = 0x0098;
-const BLE_CMD_STATE_CHANGE = 0x0097;
-const BLE_CMD_SCENE_TRIG = 0x0021;
-const BLE_CMD_TIME_UPDATE = 0x001b;
-const BLE_CMD_REMOTE_CLICK = 0x0016;
+// BLE commands for easier access
+const {
+  REMOTE_CLICK: BLE_CMD_REMOTE_CLICK,
+  TIME_UPDATE: BLE_CMD_TIME_UPDATE,
+  SCENE_TRIGGER: BLE_CMD_SCENE_TRIG,
+  STATE_CHANGE: BLE_CMD_STATE_CHANGE,
+  DIM_CHANGE: BLE_CMD_DIM_CHANGE,
+} = BLE_COMMANDS;
 
-const BLE_BROADCAST_DEVICE_ID = 0x01;
-const BLE_REQUEST_NO_RESPONSE = 0x0110;
-const BLE_REQUEST_RESPONSE = 0x0102;
-// const BLE_REQUEST_READ_VALUE = 0x0103;
-
-const BLUEZ_SERVICE_NAME = 'org.bluez';
-const DBUS_OM_INTERFACE = 'org.freedesktop.DBus.ObjectManager';
-const DBUS_PROP_INTERFACE = 'org.freedesktop.DBus.Properties';
-
-const BLUEZ_ADAPTER_ID = 'org.bluez.Adapter1';
-const BLUEZ_DEVICE_ID = 'org.bluez.Device1';
-const GATT_SERVICE_ID = 'org.bluez.GattService1';
-const GATT_CHRC_ID = 'org.bluez.GattCharacteristic1';
+const BLE_CMD_DIM2_CHANGE = 0x0098; // Dim + state update
+const BLE_REQUEST_NO_RESPONSE = 0x0110; // Set value, no response.
+const BLE_REQUEST_RESPONSE = 0x0102; // Request response, time for example
+// const BLE_REQUEST_READ_VALUE = 0x0103; // Read value?
 
 const PAYLOAD_POSITION_OFFSET = 5;
 const DIM_LEVEL_POSITION_OFFSET = 7;
 
-const delay = (timeout) => new Promise((resolve) => setTimeout(resolve, timeout));
+const delay = (timeout) =>
+  new Promise((resolve) => {
+    setTimeout(resolve, timeout);
+  });
 
 class PlejBLEHandler extends EventEmitter {
   adapter;
@@ -65,7 +66,6 @@ class PlejBLEHandler extends EventEmitter {
   requestCurrentPlejdTimeRef = null;
   reconnectInProgress = false;
   emergencyReconnectTimeout = null;
-  discoveryInProgress = false;
 
   // Refer to BLE-states.md regarding the internal BLE/bluez state machine of Bluetooth states
   // These states refer to the state machine of this file
@@ -77,7 +77,6 @@ class PlejBLEHandler extends EventEmitter {
     commandReceived: 'commandReceived',
     writeFailed: 'writeFailed',
     writeSuccess: 'writeSuccess',
-    currentState: 'currentState',
   };
 
   constructor(deviceRegistry) {
@@ -95,8 +94,6 @@ class PlejBLEHandler extends EventEmitter {
       lastDataProperties: null,
       auth: null,
       ping: null,
-      lightLevel: null,
-      lightLevelProperties: null,
     };
 
     this.bus = dbus.systemBus();
@@ -119,30 +116,9 @@ class PlejBLEHandler extends EventEmitter {
     if (this.characteristics.lastDataProperties) {
       this.characteristics.lastDataProperties.removeAllListeners('PropertiesChanged');
     }
-    if (this.characteristics.lightLevelProperties) {
-      this.characteristics.lightLevelProperties.removeAllListeners('PropertiesChanged');
-    }
     if (this.objectManager) {
       this.objectManager.removeAllListeners('InterfacesAdded');
     }
-
-    // Stop discovery if it's running
-    if (this.discoveryInProgress && this.adapter) {
-      logger.verbose('Stopping discovery during cleanup...');
-      this._stopDiscoverySafely().catch((err) => {
-        logger.error('Error stopping discovery during cleanup:', err);
-      });
-    } else {
-      this.discoveryInProgress = false;
-    }
-  }
-
-  _validateAdapter() {
-    if (!this.adapter) {
-      logger.warn('Adapter is null, needs re-initialization');
-      return false;
-    }
-    return true;
   }
 
   async init() {
@@ -173,7 +149,6 @@ class PlejBLEHandler extends EventEmitter {
     this.bleDevices = [];
     this.connectedDevice = null;
     this.connectedDeviceId = null;
-    this.discoveryInProgress = false; // Reset discovery state
 
     this.characteristics = {
       data: null,
@@ -181,43 +156,23 @@ class PlejBLEHandler extends EventEmitter {
       lastDataProperties: null,
       auth: null,
       ping: null,
-      lightLevel: null,
-      lightLevelProperties: null,
     };
 
-    try {
-      await this._getInterface();
-      await this._startGetPlejdDevice();
+    await this._getInterface();
+    await this._startGetPlejdDevice();
 
-      logger.info('BLE init done, waiting for devices.');
-    } catch (err) {
-      logger.error('Failed to initialize BLE:', err);
-
-      if (err.message.includes('Resource Not Ready')) {
-        logger.warn('BLE adapter not ready, attempting power cycle and re-initialization...');
-        try {
-          await this._powerCycleAdapter();
-          await this._getInterface();
-          await this._startGetPlejdDevice();
-          logger.info('BLE init successful after power cycle recovery');
-        } catch (recoveryErr) {
-          logger.error('Failed to recover from Resource Not Ready error:', recoveryErr);
-          throw recoveryErr;
-        }
-      } else {
-        throw err;
-      }
-    }
+    logger.info('BLE init done, waiting for devices.');
   }
 
   /**
    * @param {string} command
    * @param {number} bleOutputAddress
-   * @param {number} data
+   * @param {number?} brightness
    */
-  async sendCommand(command, bleOutputAddress, data) {
+  async sendCommand(command, bleOutputAddress, brightness) {
     let payload;
     let brightnessVal;
+
     switch (command) {
       case COMMANDS.TURN_ON:
         payload = this._createHexPayload(bleOutputAddress, BLE_CMD_STATE_CHANGE, '01');
@@ -227,20 +182,11 @@ class PlejBLEHandler extends EventEmitter {
         break;
       case COMMANDS.DIM:
         // eslint-disable-next-line no-bitwise
-        brightnessVal = (data << 8) | data;
+        brightnessVal = (brightness << 8) | brightness;
         payload = this._createHexPayload(
           bleOutputAddress,
           BLE_CMD_DIM2_CHANGE,
           `01${brightnessVal.toString(16).padStart(4, '0')}`,
-        );
-        break;
-      case COMMANDS.SET_DIM_LEVEL:
-        // eslint-disable-next-line no-bitwise
-        brightnessVal = (data << 8) | data;
-        payload = this._createHexPayload(
-          bleOutputAddress,
-          BLE_CMD_DIM2_CHANGE,
-          `00${brightnessVal.toString(16).padStart(4, '0')}`,
         );
         break;
       default:
@@ -321,11 +267,9 @@ class PlejBLEHandler extends EventEmitter {
       try {
         logger.verbose('Stopping discovery...');
         await this.adapter.StopDiscovery();
-        this.discoveryInProgress = false;
         logger.verbose('Stopped BLE discovery');
       } catch (err) {
         logger.error('Failed to stop discovery.', err);
-        this.discoveryInProgress = false; // Reset state even if stop fails
         if (err.message.includes('Operation already in progress')) {
           logger.info(
             'If you continue to get "operation already in progress" error, you can try power cycling the bluetooth adapter. Get root console access, run "bluetoothctl" => "power off" => "power on" => "exit" => restart addon.',
@@ -358,26 +302,18 @@ class PlejBLEHandler extends EventEmitter {
       } else {
         logger.info('Plejd clock updates disabled in configuration.');
       }
+
       this._startPing();
 
-      // After we've authenticated, we need to hook up the event listener
-      // for changes to lastData.
+      // After we've authenticated:
+
+      // Hook up the event listener for changes to lastData.
       this.characteristics.lastDataProperties.on('PropertiesChanged', (
         iface,
         properties,
         // invalidated (third param),
       ) => this._onLastDataUpdated(iface, properties));
       this.characteristics.lastData.StartNotify();
-
-      this.characteristics.lightLevelProperties.on('PropertiesChanged', (
-        iface,
-        properties,
-        // invalidated (third param),
-      ) => this._handlePlejdUpdate(iface, properties));
-      this.characteristics.lightLevel.StartNotify();
-
-      await this._plejdUpdate();
-
       this.consecutiveReconnectAttempts = 0;
       this.emit(PlejBLEHandler.EVENTS.connected);
 
@@ -389,58 +325,6 @@ class PlejBLEHandler extends EventEmitter {
       logger.debug(`Starting reconnect loop due to ${err.message}`);
       this.startReconnectPeriodicallyLoop();
     }
-  }
-
-  async _handlePlejdUpdate(iface, properties) {
-    if (iface !== GATT_CHRC_ID) {
-      return;
-    }
-
-    const changedKeys = Object.keys(properties);
-    if (changedKeys.length === 0) {
-      return;
-    }
-
-    let value = await properties.Value;
-    if (!value) {
-      return;
-    }
-
-    value = value.value;
-    if (value.length !== 20 && value.length !== 10) {
-      logger.debug(`Unknown length data received for lightlevel: ${value}`);
-      return;
-    }
-
-    let msgs = [value.slice(0, 10)];
-    if (value.length === 20) {
-      msgs.push(value.slice(10, 20));
-    }
-
-    for (let m of msgs) {
-      const bleOutputAddress = m.readUInt8(0);
-      const device = this.deviceRegistry.getOutputDeviceByBleOutputAddress(bleOutputAddress);
-      if (!device) return;
-      const outputUniqueId = device ? device.uniqueId : null;
-      const deviceName = device ? device.name : 'Unknown';
-      const dim = m.readUInt8(6);
-      const state = m.readUInt8(1) === 1 ? true : false;
-
-      logger.verbose(
-        `Decoded: Device ${outputUniqueId} (BLE address ${bleOutputAddress}), name: ${deviceName} state: ${state}, dim: ${dim}`,
-      );
-
-      this.deviceRegistry.setOutputState(device.uniqueId, state, dim);
-
-      this.emit(PlejBLEHandler.EVENTS.currentState, device.uniqueId, {
-        state: state,
-        brightness: dim,
-      });
-    }
-  }
-
-  async _plejdUpdate() {
-    await this.characteristics.lightLevel.WriteValue([0x01], {});
   }
 
   async _getInterface() {
@@ -464,10 +348,8 @@ class PlejBLEHandler extends EventEmitter {
           const adapterObject = await this.bus.getProxyObject(BLUEZ_SERVICE_NAME, path);
           // eslint-disable-next-line no-await-in-loop
           this.adapterProperties = await adapterObject.getInterface(DBUS_PROP_INTERFACE);
-
-          // Check if adapter is ready
-          await this._ensureAdapterReady();
-
+          // eslint-disable-next-line no-await-in-loop
+          await this._powerOnAdapter();
           this.adapter = adapterObject.getInterface(BLUEZ_ADAPTER_ID);
           // eslint-disable-next-line no-await-in-loop
           await this._cleanExistingConnections(managedObjects);
@@ -486,101 +368,22 @@ class PlejBLEHandler extends EventEmitter {
     throw new Error('Unable to find a bluetooth adapter that is compatible.');
   }
 
-  async _ensureAdapterReady() {
-    try {
-      // Check if adapter is powered on
-      const powered = await this.adapterProperties.Get(BLUEZ_ADAPTER_ID, 'Powered');
-      if (!powered.value) {
-        logger.warn('Adapter not powered on, powering it on...');
-        await this._powerOnAdapter();
-      }
-
-      // Check if adapter is discoverable (optional, but good to verify)
-      const discoverable = await this.adapterProperties.Get(BLUEZ_ADAPTER_ID, 'Discoverable');
-      if (!discoverable.value) {
-        logger.verbose('Adapter not discoverable, enabling...');
-        await this.adapterProperties.Set(
-          BLUEZ_ADAPTER_ID,
-          'Discoverable',
-          new dbus.Variant('b', 1),
-        );
-      }
-
-      logger.verbose('Adapter is ready');
-    } catch (err) {
-      logger.error('Failed to ensure adapter is ready:', err);
-      throw new Error('Resource Not Ready');
-    }
-  }
-
   async _powerCycleAdapter() {
     logger.verbose('Power cycling BLE adapter');
-    try {
-      await this._powerOffAdapter();
-      await this._powerOnAdapter();
-    } catch (err) {
-      logger.error('Failed to power cycle adapter:', err);
-      // Continue anyway, the adapter might still be usable
-    }
+    await this._powerOffAdapter();
+    await this._powerOnAdapter();
   }
 
   async _powerOnAdapter() {
     logger.verbose('Powering on BLE adapter and waiting 5 seconds');
-    try {
-      await this.adapterProperties.Set(BLUEZ_ADAPTER_ID, 'Powered', new dbus.Variant('b', 1));
-      await delay(5000);
-
-      // Verify the adapter is actually powered on
-      const powered = await this.adapterProperties.Get(BLUEZ_ADAPTER_ID, 'Powered');
-      if (!powered.value) {
-        logger.warn('Adapter power on failed, retrying...');
-        await delay(2000);
-        await this.adapterProperties.Set(BLUEZ_ADAPTER_ID, 'Powered', new dbus.Variant('b', 1));
-        await delay(3000);
-      }
-    } catch (err) {
-      logger.error('Failed to power on adapter:', err);
-      throw err;
-    }
+    await this.adapterProperties.Set(BLUEZ_ADAPTER_ID, 'Powered', new dbus.Variant('b', 1));
+    await delay(5000);
   }
 
   async _powerOffAdapter() {
     logger.verbose('Powering off BLE adapter and waiting 30 seconds');
-    try {
-      await this.adapterProperties.Set(BLUEZ_ADAPTER_ID, 'Powered', new dbus.Variant('b', 0));
-      await delay(30000);
-    } catch (err) {
-      logger.error('Failed to power off adapter:', err);
-      // Continue anyway, might already be off
-    }
-  }
-
-  async _stopDiscoverySafely() {
-    if (!this.discoveryInProgress || !this.adapter) {
-      this.discoveryInProgress = false;
-      return;
-    }
-
-    try {
-      logger.verbose('Stopping discovery safely...');
-      await this.adapter.StopDiscovery();
-      logger.verbose('Discovery stopped successfully');
-    } catch (err) {
-      if (err.message.includes('Operation already in progress')) {
-        logger.warn(
-          'Discovery stop failed - operation already in progress, this is expected during cleanup',
-        );
-      } else if (err.message.includes('Resource Not Ready')) {
-        logger.warn(
-          'Discovery stop failed - Resource Not Ready, adapter may need re-initialization',
-        );
-        // Don't reset adapter here, let the calling code handle re-initialization
-      } else {
-        logger.error('Failed to stop discovery during cleanup:', err);
-      }
-    } finally {
-      this.discoveryInProgress = false;
-    }
+    await this.adapterProperties.Set(BLUEZ_ADAPTER_ID, 'Powered', new dbus.Variant('b', 0));
+    await delay(30000);
   }
 
   async _cleanExistingConnections(managedObjects) {
@@ -622,19 +425,6 @@ class PlejBLEHandler extends EventEmitter {
   }
 
   async _startGetPlejdDevice() {
-    // Check if discovery is already running
-    if (this.discoveryInProgress) {
-      logger.warn('Discovery already in progress, stopping it first...');
-      await this._stopDiscoverySafely();
-      await delay(1000); // Wait a bit for the previous discovery to fully stop
-    }
-
-    // Ensure adapter is valid before proceeding
-    if (!this.adapter) {
-      logger.warn('Adapter is null, re-initializing...');
-      await this._getInterface();
-    }
-
     logger.verbose('Setting up interfacesAdded subscription and discovery filter');
     this.objectManager.on('InterfacesAdded', (path, interfaces) =>
       this._onInterfacesAdded(path, interfaces),
@@ -649,75 +439,14 @@ class PlejBLEHandler extends EventEmitter {
       logger.verbose('Starting BLE discovery... This can take up to 180 seconds.');
       this._scheduleInternalInit();
       await this.adapter.StartDiscovery();
-      this.discoveryInProgress = true;
       logger.verbose('Started BLE discovery');
     } catch (err) {
       logger.error('Failed to start discovery.', err);
-
       if (err.message.includes('Operation already in progress')) {
         logger.info(
-          'Discovery failed - operation already in progress. Attempting to stop and restart...',
-        );
-        try {
-          await this._stopDiscoverySafely();
-          await delay(2000); // Wait longer for the operation to fully complete
-
-          // Ensure adapter is still valid after stopping discovery
-          if (!this.adapter) {
-            logger.warn('Adapter became null after stopping discovery, re-initializing...');
-            await this._getInterface();
-          }
-
-          await this.adapter.StartDiscovery();
-          this.discoveryInProgress = true;
-          logger.verbose('Successfully restarted BLE discovery after stop/start');
-        } catch (retryErr) {
-          logger.error('Failed to restart discovery after stop/start:', retryErr);
-          if (retryErr.message.includes('Operation already in progress')) {
-            await this._handleDiscoveryFailure('operation_already_in_progress');
-          } else {
-            throw new Error(
-              'Failed to start discovery. Make sure no other add-on is currently scanning.',
-            );
-          }
-        }
-      } else if (err.message.includes('Resource Not Ready')) {
-        logger.warn('Discovery failed - Resource Not Ready. Adapter may need power cycling...');
-        await this._handleDiscoveryFailure('resource_not_ready');
-      } else {
-        throw new Error(
-          'Failed to start discovery. Make sure no other add-on is currently scanning.',
+          'If you continue to get "operation already in progress" error, you can try power cycling the bluetooth adapter. Get root console access, run "bluetoothctl" => "power off" => "power on" => "exit" => restart addon.',
         );
       }
-    }
-  }
-
-  async _handleDiscoveryFailure(failureType) {
-    logger.info(
-      `Handling discovery failure: ${failureType}. If you continue to get errors, you can try power cycling the bluetooth adapter. Get root console access, run "bluetoothctl" => "power off" => "power on" => "exit" => restart addon.`,
-    );
-
-    try {
-      // Try power cycling as last resort
-      logger.verbose('Attempting power cycle to resolve discovery issues...');
-      await delay(500);
-      await this._powerCycleAdapter();
-      await delay(3000); // Wait longer for adapter to fully initialize
-
-      // Re-initialize the adapter after power cycle
-      await this._getInterface();
-
-      // Ensure adapter is valid before proceeding
-      if (!this.adapter) {
-        throw new Error('Failed to re-initialize adapter after power cycle');
-      }
-
-      await delay(2000);
-      await this.adapter.StartDiscovery();
-      this.discoveryInProgress = true;
-      logger.verbose('Successfully started discovery after power cycle and re-initialization');
-    } catch (powerCycleErr) {
-      logger.error('Failed to start discovery even after power cycle:', powerCycleErr);
       throw new Error(
         'Failed to start discovery. Make sure no other add-on is currently scanning.',
       );
@@ -806,20 +535,7 @@ class PlejBLEHandler extends EventEmitter {
           logger.warn(
             `Tried reconnecting ${this.consecutiveReconnectAttempts} times. Will power cycle the BLE adapter now...`,
           );
-          try {
-            await this._powerCycleAdapter();
-            // Re-initialize the adapter after power cycle
-            await this._getInterface();
-
-            // Validate adapter after re-initialization
-            if (!this._validateAdapter()) {
-              logger.error('Adapter validation failed after power cycle');
-              throw new Error('Adapter validation failed');
-            }
-          } catch (powerCycleErr) {
-            logger.error('Failed to power cycle adapter during reconnect:', powerCycleErr);
-            // Continue anyway, might still work
-          }
+          await this._powerCycleAdapter();
         } else {
           logger.verbose(
             `Reconnect attempt ${this.consecutiveReconnectAttempts} in a row. Will power cycle every 10th time.`,
@@ -860,6 +576,7 @@ class PlejBLEHandler extends EventEmitter {
       );
       const encryptedData = this._encryptDecrypt(this.cryptoKey, this.plejdService.addr, payload);
       await this.characteristics.data.WriteValue([...encryptedData], {});
+
       await this._onWriteSuccess();
     } catch (err) {
       await this._onWriteFailed(err);
@@ -946,7 +663,7 @@ class PlejBLEHandler extends EventEmitter {
     logger.info('Requesting current Plejd time...');
 
     const payload = this._createHexPayload(
-      this.connectedDevice.deviceId,
+      this.connectedDeviceId,
       BLE_CMD_TIME_UPDATE,
       '',
       BLE_REQUEST_RESPONSE,
@@ -1006,10 +723,6 @@ class PlejBLEHandler extends EventEmitter {
       } else if (chUuid === PING_UUID) {
         logger.verbose('found PING characteristic.');
         this.characteristics.ping = ch;
-      } else if (chUuid === PLEJD_LIGHTLEVEL_UUID) {
-        logger.verbose('found LIGHTLEVEL characteristic.');
-        this.characteristics.lightLevel = ch;
-        this.characteristics.lightLevelProperties = prop;
       }
       /* eslint-eslint no-await-in-loop */
     }
@@ -1137,7 +850,6 @@ class PlejBLEHandler extends EventEmitter {
     const outputUniqueId = device ? device.uniqueId : null;
 
     if (Logger.shouldLog('verbose')) {
-      // decoded.toString() could potentially be expensive
       logger.verbose(`Raw event received: ${decoded.toString('hex')}`);
       logger.verbose(
         `Decoded: Device ${outputUniqueId} (BLE address ${bleOutputAddress}), cmd ${cmd.toString(
@@ -1293,7 +1005,8 @@ class PlejBLEHandler extends EventEmitter {
 
   // eslint-disable-next-line class-methods-use-this
   _createChallengeResponse(key, challenge) {
-    const intermediate = crypto.createHash('sha256').update(xor(key, challenge)).digest();
+    const xorResult = xor(key, challenge);
+    const intermediate = crypto.createHash('sha256').update(new Uint8Array(xorResult)).digest();
     const part1 = intermediate.subarray(0, 16);
     const part2 = intermediate.subarray(16);
 
@@ -1309,7 +1022,7 @@ class PlejBLEHandler extends EventEmitter {
     const cipher = crypto.createCipheriv('aes-128-ecb', key, '');
     cipher.setAutoPadding(false);
 
-    let ct = cipher.update(buf).toString('hex');
+    let ct = cipher.update(new Uint8Array(buf)).toString('hex');
     ct += cipher.final().toString('hex');
     const ctBuf = Buffer.from(ct, 'hex');
 
