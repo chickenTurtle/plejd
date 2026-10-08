@@ -1,15 +1,13 @@
 {
   "name": "Plejd",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "slug": "plejd",
   "description": "Adds support for the Swedish home automation devices from Plejd.",
   "url": "https://github.com/chickenTurtle/plejd/",
+  "image": "ghcr.io/chickenturtle/plejd",
   "arch": [
-    "armhf",
-    "armv7",
     "aarch64",
-    "amd64",
-    "i386"
+    "amd64"
   ],
   "startup": "application",
   "boot": "auto",
